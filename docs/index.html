@@ -128,12 +128,32 @@
   footer a { color: var(--muted); }
   footer .strong { color: var(--fg); }
 
+  #theme-toggle {
+    position: fixed; top: 14px; right: 14px; z-index: 20;
+    background: var(--card); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 999px; padding: 7px 13px; cursor: pointer;
+    font: 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: inline-flex; align-items: center; gap: 6px; user-select: none;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  }
+  #theme-toggle:hover { border-color: var(--accent); }
+
   @media (max-width: 680px) {
     .trio, .grid { grid-template-columns: 1fr; }
   }
 </style>
+<script>
+  /* Apply a saved theme choice before first paint (no flash). Default is
+     'auto' = follow the OS via prefers-color-scheme; user can override. */
+  try {
+    var _t = localStorage.getItem('swarmint-theme');
+    if (_t && _t !== 'auto') document.documentElement.setAttribute('data-theme', _t);
+  } catch (e) {}
+</script>
 </head>
 <body>
+
+<button id="theme-toggle" type="button" aria-label="Switch color theme" title="Switch color theme">◐ Auto</button>
 
 <header class="hero">
   <canvas id="swarm" aria-hidden="true"></canvas>
@@ -234,11 +254,29 @@ python -m swarmint.sim.run_multiproc</pre>
 </footer>
 
 <script>
-  // Respect a manual theme toggle if one is ever added; defaults to OS preference.
-  try {
-    var t = localStorage.getItem('swarmint-theme');
-    if (t) document.documentElement.setAttribute('data-theme', t);
-  } catch (e) {}
+  /* Theme choice: Auto (follow OS) -> Light -> Dark, cycling. Default Auto.
+     Persisted; the early <head> script applies it before paint next visit. */
+  (function () {
+    var KEY = 'swarmint-theme', MODES = ['auto', 'light', 'dark'];
+    var LABEL = { auto: '◐ Auto', light: '☀ Light', dark: '☾ Dark' };
+    var root = document.documentElement, btn = document.getElementById('theme-toggle');
+    var cur;
+    try { cur = localStorage.getItem(KEY) || 'auto'; } catch (e) { cur = 'auto'; }
+    if (MODES.indexOf(cur) < 0) cur = 'auto';
+
+    function apply(m) {
+      if (m === 'auto') root.removeAttribute('data-theme');
+      else root.setAttribute('data-theme', m);
+      if (btn) btn.textContent = LABEL[m];
+      if (window.__swarmAccentRefresh) window.__swarmAccentRefresh();  // recolor the swarm
+    }
+    apply(cur);
+    if (btn) btn.addEventListener('click', function () {
+      cur = MODES[(MODES.indexOf(cur) + 1) % MODES.length];
+      try { localStorage.setItem(KEY, cur); } catch (e) {}
+      apply(cur);
+    });
+  })();
 </script>
 
 <script>
@@ -261,6 +299,7 @@ python -m swarmint.sim.run_multiproc</pre>
     return c || '#6a93ff';
   }
   var COLOR = accent();
+  window.__swarmAccentRefresh = function () { COLOR = accent(); };  // recolor on theme change
 
   function resize() {
     var host = canvas.parentElement;
