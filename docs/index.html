@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>swarmint — decentralized, Byzantine-robust swarm learning</title>
+<meta name="description" content="Thousands of tiny models each learn from their own local data and gossip knowledge peer-to-peer over a real P2P network — no central server, no gradient sharing, no raw data leaving the device. Open source, AGPL-3.0.">
+<link rel="canonical" href="https://swarmint.org/">
+<meta name="theme-color" content="#0b1020">
+<meta name="keywords" content="decentralized learning, federated learning, swarm intelligence, gossip protocol, byzantine fault tolerance, peer-to-peer, kademlia, DHT, edge AI, prototype learning, open source">
+
+<!-- Open Graph / social -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="swarmint">
+<meta property="og:title" content="swarmint — decentralized, Byzantine-robust swarm learning">
+<meta property="og:description" content="Tiny models that learn locally and gossip knowledge peer-to-peer. No central server. No gradient sharing. Poison-resistant. Open source (AGPL-3.0).">
+<meta property="og:url" content="https://swarmint.org/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="swarmint — decentralized, Byzantine-robust swarm learning">
+<meta name="twitter:description" content="Tiny models that learn locally and gossip knowledge peer-to-peer. No central server. Poison-resistant. Open source.">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareSourceCode",
+  "name": "swarmint",
+  "description": "Decentralized, Byzantine-robust swarm learning: tiny prototype models that gossip knowledge peer-to-peer over a real P2P network, with no central server and no gradient sharing.",
+  "codeRepository": "https://github.com/shaswata56/swarmint",
+  "programmingLanguage": "Python",
+  "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+  "url": "https://swarmint.org/"
+}
+</script>
+
+<style>
+  :root {
+    --bg: #ffffff; --fg: #14181f; --muted: #5a6472; --line: #e6e8ec;
+    --card: #f7f8fa; --accent: #3b6ef5; --accent-fg: #ffffff; --code-bg: #0f1424; --code-fg: #d6e0ff;
+    --ok: #1a8f5a;
+    --maxw: 960px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b1020; --fg: #e8ecf4; --muted: #99a3b5; --line: #222a3d;
+      --card: #121a2e; --accent: #6a93ff; --accent-fg: #0b1020; --code-bg: #060a16; --code-fg: #cdd8ff;
+      --ok: #46d38a;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg:#fff; --fg:#14181f; --muted:#5a6472; --line:#e6e8ec; --card:#f7f8fa;
+    --accent:#3b6ef5; --accent-fg:#fff; --code-bg:#0f1424; --code-fg:#d6e0ff; --ok:#1a8f5a;
+  }
+  :root[data-theme="dark"] {
+    --bg:#0b1020; --fg:#e8ecf4; --muted:#99a3b5; --line:#222a3d; --card:#121a2e;
+    --accent:#6a93ff; --accent-fg:#0b1020; --code-bg:#060a16; --code-fg:#cdd8ff; --ok:#46d38a;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 20px; }
+  code, pre { font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; }
+
+  header.hero {
+    text-align: center; padding: 84px 20px 56px;
+    background: radial-gradient(1200px 400px at 50% -80px, color-mix(in srgb, var(--accent) 18%, transparent), transparent);
+    border-bottom: 1px solid var(--line);
+  }
+  .mark { font-size: 15px; letter-spacing: .28em; text-transform: uppercase; color: var(--accent); font-weight: 700; }
+  h1 { font-size: clamp(30px, 6vw, 52px); line-height: 1.1; margin: 14px 0 10px; letter-spacing: -.02em; }
+  .tag { font-size: clamp(16px, 2.6vw, 21px); color: var(--fg); max-width: 640px; margin: 0 auto 8px; font-weight: 500; }
+  .sub { color: var(--muted); max-width: 620px; margin: 0 auto 26px; }
+  .badges { color: var(--muted); font-size: 13.5px; margin-top: 22px; }
+  .badges b { color: var(--fg); font-weight: 600; }
+
+  .btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-block; padding: 11px 20px; border-radius: 10px; font-weight: 600; font-size: 15px;
+    border: 1px solid var(--line);
+  }
+  .btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  .btn.primary:hover { text-decoration: none; filter: brightness(1.06); }
+  .btn.ghost { background: transparent; color: var(--fg); }
+  .btn.ghost:hover { text-decoration: none; border-color: var(--accent); }
+
+  section { padding: 54px 0; border-bottom: 1px solid var(--line); }
+  h2 { font-size: clamp(22px, 4vw, 30px); letter-spacing: -.01em; margin: 0 0 8px; }
+  .lead { color: var(--muted); max-width: 720px; margin: 0 0 26px; }
+
+  .trio { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .trio .t { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  .trio .t b { display: block; font-size: 16px; margin-bottom: 4px; }
+  .trio .t span { color: var(--muted); font-size: 14.5px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 15px; overflow: hidden; }
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+  th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+  tr:last-child td { border-bottom: none; }
+  td.win { color: var(--ok); font-weight: 700; }
+  .note { color: var(--muted); font-size: 13.5px; margin-top: 12px; }
+
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+  .card h3 { margin: 0 0 6px; font-size: 17px; }
+  .card p { margin: 0; color: var(--muted); font-size: 14.5px; }
+
+  pre {
+    background: var(--code-bg); color: var(--code-fg); padding: 18px 20px; border-radius: 12px;
+    overflow-x: auto; font-size: 13.5px; line-height: 1.7; margin: 0;
+  }
+  pre .c { color: #7f8cad; }
+
+  footer { padding: 40px 0 60px; color: var(--muted); font-size: 14px; text-align: center; }
+  footer a { color: var(--muted); }
+  footer .strong { color: var(--fg); }
+
+  @media (max-width: 680px) {
+    .trio, .grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="mark">swarmint</div>
+    <h1>Learning without a center.</h1>
+    <p class="tag">Decentralized, Byzantine-robust swarm learning.</p>
+    <p class="sub">Thousands of tiny models each learn from their own local data and gossip
+      knowledge peer-to-peer over a real P2P network. No central server. No gradient sharing.
+      No raw data ever leaves the device — and the swarm keeps converging even while malicious
+      nodes try to poison it.</p>
+    <div class="btns">
+      <a class="btn primary" href="https://github.com/shaswata56/swarmint">View on GitHub</a>
+      <a class="btn ghost" href="#quickstart">Quickstart</a>
+      <a class="btn ghost" href="https://github.com/shaswata56/swarmint#readme">Docs</a>
+    </div>
+    <p class="badges"><b>AGPL-3.0</b> &nbsp;·&nbsp; <b>Python 3.10+</b> &nbsp;·&nbsp; <b>v0.1</b> (research prototype) &nbsp;·&nbsp; 81 tests passing</p>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>Why swarmint</h2>
+    <p class="lead">Federated learning that averages neural-net weights is fragile and usually
+      needs a central coordinator. swarmint removes both: order-invariant prototype merging
+      eliminates the averaging problem, and gossip over a DHT eliminates the coordinator.</p>
+    <div class="trio">
+      <div class="t"><b>No central server</b><span>Peers discover each other over a Kademlia DHT and gossip directly. Nothing to run, nothing to trust in the middle.</span></div>
+      <div class="t"><b>No gradient sharing</b><span>Nodes exchange bounded sets of labeled prototypes, not gradients or raw data. Merging is order-invariant, so there's no weight-averaging fragility.</span></div>
+      <div class="t"><b>Poison-resistant</b><span>Merge-validation, corroboration, and reputation make label-flip attacks fail. Malicious nodes lose trust and get ignored.</span></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>It works on real data</h2>
+    <p class="lead">Each node sees only a slice of the classes; gossip pools them so every node
+      approaches full-task accuracy — validated on synthetic and two real datasets.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Setting</th><th>Solo baseline</th><th>Swarm</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Synthetic · 100 nodes · 5% malicious</td><td>0.20</td><td class="win">0.96</td><td>stable, Byzantine-robust</td></tr>
+          <tr><td>Real digits · 10-class</td><td>0.20</td><td class="win">0.78 → 0.88</td><td>0.88 with a shared genesis embedding</td></tr>
+          <tr><td>Real faces · 40-class, few-shot</td><td>0.05</td><td class="win">0.51</td><td>10× solo on a brutal dataset</td></tr>
+          <tr><td>Distributed inference · 30% liars</td><td>0.20</td><td class="win">0.79</td><td>mixture-of-experts across peers</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">Centralized full-nearest-neighbor ceilings are 0.93 (digits) / 0.83 (faces) — the
+      swarm reaches these while staying decentralized and poison-resistant.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>What's inside</h2>
+    <div class="grid">
+      <div class="card"><h3>Gossip federation</h3><p>Push-based prototype gossip with corroboration — each node learns classes it never saw locally, pooled from the swarm.</p></div>
+      <div class="card"><h3>Byzantine trust</h3><p>Reputation + merge-rollback + majority corroboration. Poisoned updates are rejected; attackers' trust collapses.</p></div>
+      <div class="card"><h3>Real P2P stack</h3><p>UDP transport, Kademlia DHT discovery, peer-exchange, Ed25519-signed messages with replay protection, and NAT hole-punching.</p></div>
+      <div class="card"><h3>Distributed inference</h3><p>Trust-weighted mixture-of-experts: a node answers queries about classes it never learned by consulting the swarm.</p></div>
+      <div class="card"><h3>Tamper-evident history</h3><p>Each node keeps a signed, append-only hash-chain of its model checkpoints — auditable and non-repudiable, no consensus required.</p></div>
+      <div class="card"><h3>Multimodal &amp; embeddings</h3><p>Encoder-free late fusion across modalities, plus an optional shared genesis embedding that lifts accuracy toward centralized.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="quickstart">
+  <div class="wrap">
+    <h2>Quickstart</h2>
+    <p class="lead">Runs on numpy alone. See gossip beat solo in one command.</p>
+<pre><span class="c"># install (core is numpy-only; extras add real P2P + real-data validation)</span>
+git clone https://github.com/shaswata56/swarmint
+cd swarmint &amp;&amp; pip install -e ".[dev]"
+
+<span class="c"># smallest end-to-end: specialists gossip into a full-task model</span>
+python examples/quickstart.py
+<span class="c">#  each node sees only 2 of 6 classes  (solo ceiling ~ 0.33)</span>
+<span class="c">#  solo node (no gossip)  : 0.333</span>
+<span class="c">#  swarm node (gossip)    : 0.855</span>
+
+<span class="c"># real data, and real UDP + DHT across OS processes</span>
+python -m swarmint.sim.run_digits
+python -m swarmint.sim.run_multiproc</pre>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p><span class="strong">swarmint</span> — built in the open, licensed
+      <a href="https://www.gnu.org/licenses/agpl-3.0.html">AGPL-3.0-or-later</a>.</p>
+    <p><a href="https://github.com/shaswata56/swarmint">GitHub</a> &nbsp;·&nbsp;
+       <a href="https://github.com/shaswata56/swarmint/blob/main/CONTRIBUTING.md">Contribute</a> &nbsp;·&nbsp;
+       <a href="https://github.com/shaswata56/swarmint#readme">Documentation</a></p>
+  </div>
+</footer>
+
+<script>
+  // Respect a manual theme toggle if one is ever added; defaults to OS preference.
+  try {
+    var t = localStorage.getItem('swarmint-theme');
+    if (t) document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+</script>
+</body>
+</html>
