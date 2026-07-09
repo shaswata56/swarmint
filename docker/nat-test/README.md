@@ -63,14 +63,37 @@ hole-punch protocol in `nat.py`. The mapping is cone-type and the signaling is
 healthy; a punch would open on a NAT with clean endpoint-independent
 *filtering* (real home routers, or a veth/netns router with explicit nftables).
 
+Follow-up runs showed the punch is also **flaky/asymmetric** here: sometimes one
+direction opens (nodeA→nodeB) while the reverse doesn't. That reinforces the
+same conclusion — a direct punch cannot be depended on.
+
+## Relay fallback (T4) — verified working over real NAT
+
+Set `SWARM_ENABLE_RELAY=1` (the compose generator's default now). When a punch
+fails, the node marks the peer relay-only and routes to it through the
+rendezvous, which forwards the (still origin-signed) datagram. Observed in a
+real-NAT run where the punch did not open both directions:
+
+| Signal | Result |
+|--------|--------|
+| rendezvous forwards relayed traffic (`relay_fwd`) | ✅ climbs 10 → 23 → 108 |
+| both nodes receive relayed gossip (`relay_rx`) | ✅ 59 / 80 |
+| both models keep growing (`n_protos`) | ✅ 12→92 and 39→125 |
+
+So two nodes that cannot punch to each other still exchange knowledge across
+their NATs, via the rendezvous. (Accuracy stays ~0.2 in this 3-node setup
+because the 3-sender corroboration rule can't be satisfied with so few nodes —
+that's expected and unrelated to relay; the counters and proto growth are the
+proof. `test_relay.py` asserts the same path deterministically on loopback.)
+
 ### Why this matters for the roadmap
 
-Even though the failure is environmental, the run empirically confirms the
-premise of the P2P-hardening phase: **hole-punching cannot be the only path to a
-peer.** A relay fallback (phase task **T4**, TURN-lite through the rendezvous)
-and keepalive (**T3**) are mandatory, not optional. The next milestone is to
-(a) reproduce a *successful* punch on a filtering-clean NAT (netns router), and
-(b) implement relay fallback so the swarm converges even when the punch can't.
+The run empirically confirms the premise of the P2P-hardening phase:
+**hole-punching cannot be the only path to a peer** — and relay fallback (**T4**,
+now implemented) makes the swarm converge even when the punch can't. Remaining:
+(a) reproduce a *successful, reliable* punch on a filtering-clean NAT (netns
+router) to validate the optimization path, (b) keepalive (**T3**) to hold direct
+mappings open, (c) NAT-type detection (**T2**) to choose punch-vs-relay.
 
 All findings are printed as `EVENT ...` lines to stdout (see
 [`swarmint/sim/net_daemon.py`](../../swarmint/sim/net_daemon.py)).

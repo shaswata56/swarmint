@@ -45,6 +45,7 @@ class NetNode:
     loss_rate: float = 0.0        # injected outbound packet loss (chaos testing, T8)
     enable_chain: bool = True     # maintain a tamper-evident model-checkpoint chain (D1)
     enable_nat: bool = True       # attach the NAT hole-punch signaler (D3)
+    enable_relay: bool = False    # route to un-punchable peers via a relay (T4); off by default
     embedding: object = None      # shared frozen genesis embedding (E1-3). Every node MUST
                                   # use the identical one — provision it here, or a joiner
                                   # fetches it from the rendezvous via fetch_embedding().
@@ -62,9 +63,15 @@ class NetNode:
 
     async def start(self, host: str, gossip_port: int, dht_port: int,
                     bootstrap_dht_addrs: list, rendezvous_id: bytes = None) -> None:
-        self.bus = UdpBus(identity=self.identity, loss_rate=self.loss_rate)
+        self.bus = UdpBus(identity=self.identity, loss_rate=self.loss_rate,
+                          enable_relay=self.enable_relay)
         await self.bus.start(host, gossip_port)
         self.bus.register_kind("pex", pack_pex, unpack_pex)
+        if self.enable_relay and rendezvous_id is not None:
+            # Default relay = the rendezvous (both un-punchable peers can reach
+            # it, since each has an open NAT mapping toward it). T6 generalizes
+            # this to any public-reachable peer / multiple relays.
+            self.bus.relay_id = rendezvous_id
 
         self.discovery = Discovery(identity=self.identity)
         self.discovery.topics = set(self.topics) if self.topics else {self.topic}
@@ -162,6 +169,13 @@ class NetNode:
         self.runner = NodeRunner(node=self.node, gossip_interval=self.gossip_interval,
                                  data_feed=feed_and_pex)
         await self.runner.start()
+
+    def mark_relay_only(self, peer_id: bytes) -> None:
+        """Route all future sends to `peer_id` through the relay (T4). Call this
+        when a direct path can't be established — e.g. a hole-punch failed, or
+        the peer sits behind a symmetric NAT that can't be punched at all."""
+        if self.bus is not None and self.bus.relay_id is not None:
+            self.bus.relay_only.add(peer_id)
 
     def _on_pex(self, msg: Message) -> None:
         self.discovery.ingest_pex(msg.payload)

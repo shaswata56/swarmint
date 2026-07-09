@@ -207,6 +207,35 @@ def unpack_nat(data: bytes) -> dict:
     return {kk: vv for kk, vv in body.items() if kk not in ("v", "k")}
 
 
+# ---- relay fallback (T4): reach a peer we can't punch to, via a mutually
+#      reachable node (e.g. the rendezvous). `blob` is the ORIGINAL signed
+#      envelope, carried untouched so the destination still verifies the true
+#      sender; the relay signs the outer wrapper (relay can't forge the inner).
+
+def pack_relay(payload: dict) -> bytes:
+    """A -> R: 'please deliver this blob to `target`'. payload: {target: bytes,
+    blob: bytes}. A dict so UdpBus's list-chunker leaves it alone."""
+    return _pack({"v": WIRE_VERSION, "k": "relay", "t": payload["target"], "b": payload["blob"]})
+
+
+def unpack_relay(data: bytes) -> dict:
+    body = _unpack(data)
+    assert body["k"] == "relay"
+    return {"target": body["t"], "blob": body["b"]}
+
+
+def pack_relayed(payload: dict) -> bytes:
+    """R -> B: 'this blob came from `origin`, relayed by me'. payload:
+    {origin: bytes, blob: bytes}."""
+    return _pack({"v": WIRE_VERSION, "k": "relayed", "o": payload["origin"], "b": payload["blob"]})
+
+
+def unpack_relayed(data: bytes) -> dict:
+    body = _unpack(data)
+    assert body["k"] == "relayed"
+    return {"origin": body["o"], "blob": body["b"]}
+
+
 # ---- tamper-evident update chain (D1) ----
 
 def pack_chain_request(_payload=None) -> bytes:

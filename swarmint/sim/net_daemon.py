@@ -88,6 +88,7 @@ async def main() -> int:
     gossip_interval = float(_env("SWARM_GOSSIP_INTERVAL", "0.5"))
     duration_s = float(_env("SWARM_DURATION_S", "90"))
     report_every = float(_env("SWARM_REPORT_EVERY_S", "3"))
+    enable_relay = _env("SWARM_ENABLE_RELAY", "0") == "1"
 
     identity = _identity_from_seed(seed)
     rng = random.Random(1000 + seed)
@@ -103,7 +104,8 @@ async def main() -> int:
         my_classes = sorted({(seed * 2) % n_classes, (seed * 2 + 1) % n_classes})
 
     net = NetNode(identity=identity, topic=1, rng=rng, n_classes=n_classes,
-                  gossip_interval=gossip_interval, gossip_sample_size=12)
+                  gossip_interval=gossip_interval, gossip_sample_size=12,
+                  enable_relay=enable_relay)
 
     def feed():
         xs, ys = sample(centers, my_classes, 1, np_rng)
@@ -166,6 +168,12 @@ async def main() -> int:
             _log("punch", peer=peer.hex(), ok=ok, attempts=attempt + 1,
                  peer_addr=str(net.bus.peer_addrs.get(peer)),
                  in_reachable=(peer in net.nat.reachable))
+            # If the punch didn't open a direct path, fall back to relaying via
+            # the rendezvous (T4) so the swarm still converges. No-op unless
+            # SWARM_ENABLE_RELAY=1.
+            if not ok and enable_relay:
+                net.mark_relay_only(peer)
+                _log("relay_fallback", peer=peer.hex(), via=rendezvous_id.hex())
 
     # --- run loop: gossip proceeds via NodeRunner; we just report ---
     test_x, test_y = global_test_set(centers, n_per_class=20)
@@ -182,7 +190,9 @@ async def main() -> int:
                  n_peers=len(net.node.peers), n_protos=len(net.node.model.protos),
                  reachable=",".join(reachable) or "-",
                  tx=net.bus.tx_bytes, rx=net.bus.rx_bytes,
-                 merges_ok=net.node.merges_ok, merges_rej=net.node.merges_rejected)
+                 merges_ok=net.node.merges_ok, merges_rej=net.node.merges_rejected,
+                 relay_tx=net.bus.relayed_tx, relay_fwd=net.bus.relayed_fwd,
+                 relay_rx=net.bus.relayed_rx)
 
     await net.stop()
     _log("stopped", role=role, seed=seed)
