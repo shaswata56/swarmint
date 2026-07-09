@@ -47,9 +47,8 @@ dev = [
 ]
 
 [project.urls]
-# TODO: set these to the real repo once the remote exists.
-Homepage = "https://github.com/OWNER/swarmint"
-Repository = "https://github.com/OWNER/swarmint"
+Homepage = "https://github.com/shaswata56/swarmint"
+Repository = "https://github.com/shaswata56/swarmint"
 
 [tool.setuptools.packages.find]
 include = ["swarmint*"]
