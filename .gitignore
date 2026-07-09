@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Virtual env (swarmint's pinned deps live in pyproject / requirements)
+.venv/
+venv/
+env/
+
+# Runtime artifacts / outputs
+results.csv
+multiproc_metrics/
+*.dhtport
+scratch_net_probe/
+
+# Datasets / caches (fetched on demand; not vendored)
+scikit_learn_data/
+*.npz
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,0 +1,9 @@
+# swarmint Phase 3 (real networking) — pinned, verified on Python 3.13.4 / win_amd64.
+# All prebuilt wheels; no compiler needed. See SWARM-P3 plan / decision #023.
+kademlia==2.2.3      # asyncio Kademlia DHT (discovery only); MIT, vendor-if-needed (~1500 LOC)
+rpcudp==5.0.1        # kademlia's UDP-RPC dependency
+pynacl==1.6.2        # Ed25519 signing (~10.9k sign+verify pairs/s)
+msgpack==1.2.1       # wire serialization (chosen over protobuf: no codegen, no gencode/runtime version-lock)
+numpy>=2             # prototype math (2.5.1 verified)
+psutil==7.2.2        # resource governor for the multiprocess harness (CPU/RAM budgeting)
+# NOTE: protobuf is intentionally NOT used (see decision #023); remove if present in the venv.
