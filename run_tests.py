@@ -2,10 +2,14 @@
 
 Tests are plain scripts (each `tests/test_*.py` has a __main__ runner), so no
 pytest is required. This discovers and runs them in-process, reporting pass/fail.
-Slow/opt-in tests (4096-dim faces) honor SWARMINT_SLOW_TESTS=1.
+Slow/opt-in tests (4096-dim faces) honor SWARMINT_SLOW_TESTS=1; the heavy
+real-process multiproc/chaos tests honor SWARMINT_PROC_TESTS=1 (they starve on
+small CI runners, so CI runs the deterministic fast suite only).
 
-    python run_tests.py            # fast suite
-    SWARMINT_SLOW_TESTS=1 python run_tests.py   # include slow real-data tests
+    python run_tests.py            # fast suite (deterministic; what CI runs)
+    SWARMINT_SLOW_TESTS=1 python run_tests.py   # + slow real-data (4096-dim faces)
+    SWARMINT_PROC_TESTS=1 python run_tests.py   # + real-process multiproc/chaos
+                                                #   (needs a multi-core host)
 """
 
 import importlib.util

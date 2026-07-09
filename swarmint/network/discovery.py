@@ -82,16 +82,27 @@ class Discovery:
         self.server.stop()
 
     async def _publish_advert(self) -> bool:
-        """Returns False (not raises) if the DHT has no known neighbors yet —
-        kademlia's set() silently no-ops in that case (e.g. this is the very
-        first node in the network before anyone has bootstrapped to it). Not
-        fatal: _refresh_loop retries every ADVERT_REFRESH_S, so this self-heals
-        once a peer joins. last_publish_ok makes the state observable instead
-        of silently swallowed (T7's metrics should surface it per-node)."""
+        """Returns False (not raises) if the DHT has no known neighbors yet
+        (e.g. this is the very first node in the network before anyone has
+        bootstrapped to it, or every neighbor has just been killed in a chaos
+        test / shutdown). Not fatal: _refresh_loop retries every
+        ADVERT_REFRESH_S, so this self-heals once a peer joins. last_publish_ok
+        makes the state observable instead of silently swallowed (T7's metrics
+        should surface it per-node).
+
+        kademlia's Server.set_digest() does `max(n.distance_to(...) for n in
+        nodes)` over the neighbors it finds and raises ValueError("max() arg is
+        an empty sequence") when there are none — it does NOT no-op. We treat
+        that specific empty-neighbor case as "not published yet" rather than
+        letting it crash the caller (observed crashing a worker mid-shutdown in
+        CI when neighbors had just been torn down)."""
         host, port = self._my_addr
         body = wire.pack_advert(self.identity.node_id, f"{host}:{port}", self.topics, ts=time.time())
         envelope = self.identity.sign_envelope(body, time.time())
-        self.last_publish_ok = bool(await self.server.set(_advert_key(self.identity.node_id), envelope))
+        try:
+            self.last_publish_ok = bool(await self.server.set(_advert_key(self.identity.node_id), envelope))
+        except ValueError:  # no DHT neighbors to store to yet — retried by _refresh_loop
+            self.last_publish_ok = False
         return self.last_publish_ok
 
     async def _refresh_loop(self) -> None:
