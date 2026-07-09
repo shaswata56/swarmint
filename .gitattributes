@@ -1,0 +1,4 @@
+# Shell scripts must keep LF endings or they break inside Linux containers
+# (a CRLF shebang -> `#!/usr/bin/env bash\r: not found`).
+*.sh text eol=lf
+docker/nat-test/entrypoint.sh text eol=lf
