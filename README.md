@@ -1,5 +1,9 @@
 # swarmint
 
+[![tests](https://github.com/shaswata56/swarmint/actions/workflows/tests.yml/badge.svg)](https://github.com/shaswata56/swarmint/actions/workflows/tests.yml)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+
 **Decentralized, Byzantine-robust swarm learning.** Thousands of tiny models
 each learn from their own local data and gossip knowledge peer-to-peer over a
 real P2P network — no central server, no gradient sharing, no raw data leaving
