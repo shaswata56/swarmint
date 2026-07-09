@@ -254,7 +254,7 @@ python -m swarmint.sim.run_multiproc</pre>
   var W = 0, H = 0, dpr = Math.min(window.devicePixelRatio || 1, 2);
   var nodes = [], pulses = [], LINK = 130, running = true;
   // cursor acts as an ephemeral node the swarm gathers around
-  var mouse = { x: 0, y: 0, active: false }, PULL = 150, MAXV = 1.7;
+  var mouse = { x: 0, y: 0, active: false }, PULL = 140, MAXV = 0.85;
 
   function accent() {
     var c = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
@@ -300,12 +300,12 @@ python -m swarmint.sim.run_multiproc</pre>
         var mdx = mouse.x - p.x, mdy = mouse.y - p.y;
         var md = Math.sqrt(mdx * mdx + mdy * mdy);
         if (md < PULL && md > 1) {
-          var f = 0.14 * (1 - md / PULL);          // soft, distance-weighted pull
+          var f = 0.04 * (1 - md / PULL);          // subtle, distance-weighted lean
           p.vx += (mdx / md) * f; p.vy += (mdy / md) * f;
         }
         var sp = Math.sqrt(p.vx * p.vx + p.vy * p.vy);   // clamp so it never explodes
         if (sp > MAXV) { p.vx = (p.vx / sp) * MAXV; p.vy = (p.vy / sp) * MAXV; }
-        p.vx *= 0.99; p.vy *= 0.99;                        // mild damping while interacting
+        p.vx *= 0.95; p.vy *= 0.95;                        // stronger damping -> nodes settle, don't clump
       }
       p.x += p.vx; p.y += p.vy;
       if (p.x < 0 || p.x > W) p.vx *= -1;
