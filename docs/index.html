@@ -253,6 +253,8 @@ python -m swarmint.sim.run_multiproc</pre>
 
   var W = 0, H = 0, dpr = Math.min(window.devicePixelRatio || 1, 2);
   var nodes = [], pulses = [], LINK = 130, running = true;
+  // cursor acts as an ephemeral node the swarm gathers around
+  var mouse = { x: 0, y: 0, active: false }, PULL = 150, MAXV = 1.7;
 
   function accent() {
     var c = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
@@ -291,9 +293,20 @@ python -m swarmint.sim.run_multiproc</pre>
     var rc = rgb[0] + ',' + rgb[1] + ',' + rgb[2];
     ctx.clearRect(0, 0, W, H);
 
-    // move
+    // move (+ gentle attraction toward the cursor when it's over the hero)
     for (var i = 0; i < nodes.length; i++) {
       var p = nodes[i];
+      if (mouse.active) {
+        var mdx = mouse.x - p.x, mdy = mouse.y - p.y;
+        var md = Math.sqrt(mdx * mdx + mdy * mdy);
+        if (md < PULL && md > 1) {
+          var f = 0.14 * (1 - md / PULL);          // soft, distance-weighted pull
+          p.vx += (mdx / md) * f; p.vy += (mdy / md) * f;
+        }
+        var sp = Math.sqrt(p.vx * p.vx + p.vy * p.vy);   // clamp so it never explodes
+        if (sp > MAXV) { p.vx = (p.vx / sp) * MAXV; p.vy = (p.vy / sp) * MAXV; }
+        p.vx *= 0.99; p.vy *= 0.99;                        // mild damping while interacting
+      }
       p.x += p.vx; p.y += p.vy;
       if (p.x < 0 || p.x > W) p.vx *= -1;
       if (p.y < 0 || p.y > H) p.vy *= -1;
@@ -333,6 +346,21 @@ python -m swarmint.sim.run_multiproc</pre>
       ctx.beginPath(); ctx.arc(px, py, 2.2, 0, 6.283); ctx.fill();
     }
 
+    // cursor links: the visitor is a node too — connect to nearby swarm nodes
+    if (mouse.active) {
+      for (var m = 0; m < nodes.length; m++) {
+        var mx = mouse.x - nodes[m].x, my = mouse.y - nodes[m].y;
+        var mdd = Math.sqrt(mx * mx + my * my);
+        if (mdd < PULL) {
+          ctx.strokeStyle = 'rgba(' + rc + ',' + (0.35 * (1 - mdd / PULL)).toFixed(3) + ')';
+          ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(mouse.x, mouse.y); ctx.lineTo(nodes[m].x, nodes[m].y); ctx.stroke();
+        }
+      }
+      ctx.fillStyle = 'rgba(' + rc + ',0.9)';
+      ctx.beginPath(); ctx.arc(mouse.x, mouse.y, 3.2, 0, 6.283); ctx.fill();
+    }
+
     // draw nodes
     for (var n = 0; n < nodes.length; n++) {
       ctx.fillStyle = 'rgba(' + rc + ',0.55)';
@@ -354,6 +382,17 @@ python -m swarmint.sim.run_multiproc</pre>
       }
     }
     for (var n = 0; n < nodes.length; n++) { ctx.fillStyle='rgba('+rc+',0.5)'; ctx.beginPath(); ctx.arc(nodes[n].x,nodes[n].y,nodes[n].r,0,6.283); ctx.fill(); }
+  }
+
+  // cursor interaction (enhancement only; ambient animation runs regardless).
+  // Listen on the hero element since the canvas is pointer-events:none.
+  if (!reduce) {
+    var hero = canvas.parentElement;
+    hero.addEventListener('mousemove', function (e) {
+      var r = canvas.getBoundingClientRect();
+      mouse.x = e.clientX - r.left; mouse.y = e.clientY - r.top; mouse.active = true;
+    });
+    hero.addEventListener('mouseleave', function () { mouse.active = false; });
   }
 
   resize();
