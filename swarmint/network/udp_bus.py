@@ -79,7 +79,10 @@ class UdpBus:
     # forwards it on. A node that RECEIVES a relayed message auto-learns to reply
     # the same way. See wire.pack_relay/pack_relayed and decision #033.
     enable_relay: bool = False
-    relay_id: object = None            # node_id of the relay we route through
+    relay_id: object = None            # primary relay (back-compat); tried first
+    relay_ids: list = field(default_factory=list)  # additional relay candidates (T6):
+                                       # more public/rendezvous nodes to fail over to,
+                                       # so no single relay is a point of failure
     relay_only: set = field(default_factory=set)   # peers reachable only via relay
     relayed_tx: int = 0                # relay wraps we sent (as origin)
     relayed_fwd: int = 0               # messages we forwarded (as relay)
@@ -123,13 +126,31 @@ class UdpBus:
                                  # wraps the inner one, so the inner must leave room
                                  # to keep the wrapped datagram under MAX_DATAGRAM_BYTES
 
+    def _relay_candidates(self):
+        """Ordered, de-duplicated relay node_ids to try: the primary first, then
+        the extra candidates (T6). None entries dropped."""
+        seen = set()
+        out = []
+        for rid in [self.relay_id, *self.relay_ids]:
+            if rid is not None and rid not in seen:
+                seen.add(rid)
+                out.append(rid)
+        return out
+
     def _relay_target_addr(self, recipient):
-        """If `recipient` should be reached via the relay, return the relay's
-        address (else None). Requires relay enabled, the peer marked relay-only,
-        and a known relay whose address we actually have."""
-        if not (self.enable_relay and recipient in self.relay_only and self.relay_id is not None):
+        """If `recipient` should be reached via a relay, return the address of
+        the first candidate relay we can actually reach (else None). Failing
+        over across candidates means one relay going down doesn't partition the
+        peer — the swarm keeps a path as long as ANY shared relay is up."""
+        if not (self.enable_relay and recipient in self.relay_only):
             return None
-        return self.peer_addrs.get(self.relay_id)
+        for rid in self._relay_candidates():
+            if rid == recipient:
+                continue  # a peer can't relay to itself
+            addr = self.peer_addrs.get(rid)
+            if addr is not None:
+                return addr
+        return None
 
     def _raw_send(self, data: bytes, addr) -> bool:
         """Put one datagram on the wire, honoring injected loss. Returns True if
@@ -236,11 +257,15 @@ class UdpBus:
             self.dropped_unverified += 1
             return
         self.relayed_rx += 1
-        # Learn the return path: the origin is only reachable via this relay, so
-        # our own sends back to it must wrap the same way (symmetric relay).
+        # Learn the return path: the origin is only reachable via a relay, so
+        # our own sends back to it must wrap the same way (symmetric relay). Also
+        # remember this relay as a candidate for future failover (T6) — any node
+        # that can deliver to us is a usable relay.
         if self.enable_relay:
             if self.relay_id is None:
                 self.relay_id = relay_sender
+            elif relay_sender != self.relay_id and relay_sender not in self.relay_ids:
+                self.relay_ids.append(relay_sender)
             self.relay_only.add(origin)
         inner_kind = wire.peek_kind(res.body)
         decoder = self._decoders.get(inner_kind)

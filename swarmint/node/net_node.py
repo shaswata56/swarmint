@@ -171,11 +171,23 @@ class NetNode:
         await self.runner.start()
 
     def mark_relay_only(self, peer_id: bytes) -> None:
-        """Route all future sends to `peer_id` through the relay (T4). Call this
+        """Route all future sends to `peer_id` through a relay (T4). Call this
         when a direct path can't be established — e.g. a hole-punch failed, or
         the peer sits behind a symmetric NAT that can't be punched at all."""
-        if self.bus is not None and self.bus.relay_id is not None:
+        if self.bus is not None and self.bus._relay_candidates():
             self.bus.relay_only.add(peer_id)
+
+    def add_relay(self, relay_id: bytes) -> None:
+        """Register another relay candidate for failover (T6). The first relay
+        set (usually the bootstrap rendezvous) is primary; extras are tried in
+        order when a prior one is unreachable, so no single relay partitions a
+        peer. A node also auto-learns relays that deliver to it (see UdpBus)."""
+        if self.bus is None or relay_id is None:
+            return
+        if self.bus.relay_id is None:
+            self.bus.relay_id = relay_id
+        elif relay_id != self.bus.relay_id and relay_id not in self.bus.relay_ids:
+            self.bus.relay_ids.append(relay_id)
 
     def _on_pex(self, msg: Message) -> None:
         self.discovery.ingest_pex(msg.payload)

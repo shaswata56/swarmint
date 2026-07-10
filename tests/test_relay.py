@@ -90,6 +90,60 @@ async def test_relay_delivers_gossip_and_learns_return_path():
     assert reply_delivered, "A never received B's relayed reply"
 
 
+async def test_multi_relay_fails_over_when_primary_unreachable():
+    """T6: with two relays, if the primary becomes unreachable the node fails
+    over to the backup and the peer stays reachable — no single relay is a
+    point of failure."""
+    id_r1, id_r2 = Identity.generate(), Identity.generate()
+    id_a, id_b = Identity.generate(), Identity.generate()
+    r1 = NetNode(identity=id_r1, topic=1, rng=random.Random(0), gossip_interval=10.0, enable_relay=True)
+    r2 = NetNode(identity=id_r2, topic=1, rng=random.Random(1), gossip_interval=10.0, enable_relay=True)
+    a = NetNode(identity=id_a, topic=1, rng=random.Random(2), gossip_interval=10.0, enable_relay=True)
+    b = NetNode(identity=id_b, topic=1, rng=random.Random(3), gossip_interval=10.0, enable_relay=True)
+    await r1.start("127.0.0.1", 0, 0, [])
+    await r2.start("127.0.0.1", 0, 0, [])
+    dht_r1 = r1.discovery.server.transport.get_extra_info("sockname")[1]
+    await a.start("127.0.0.1", 0, 0, [("127.0.0.1", dht_r1)], rendezvous_id=id_r1.node_id)
+    await b.start("127.0.0.1", 0, 0, [("127.0.0.1", dht_r1)], rendezvous_id=id_r1.node_id)
+
+    # Make BOTH relays learn both nodes: point A/B at R2's address too and have
+    # each contact both relays (as they would each bootstrap node in the field).
+    for node in (a, b):
+        node.bus.peer_addrs[id_r2.node_id] = ("127.0.0.1", r2.bus.bound_port)
+        await node.nat.discover_reflexive(id_r1.node_id, timeout=1.5)
+        await node.nat.discover_reflexive(id_r2.node_id, timeout=1.5)
+        node.add_relay(id_r2.node_id)          # R1 primary (from bootstrap), R2 backup
+
+    a.mark_relay_only(id_b.node_id)
+
+    got = []
+    orig = b.node.receive
+    b.node.receive = lambda m: (got.append(m), orig(m))
+
+    # Phase 1: primary (R1) carries it.
+    a.bus.send(Message(id_a, id_b.node_id, "protos", [Prototype(np.ones(4, dtype=np.float32), 1, 1.0)]))
+    via_primary = await _wait_for(lambda: len(got) >= 1)
+    r1_fwd_after = r1.bus.relayed_fwd
+
+    # Phase 2: primary goes dark — drop A's route to R1. Next send must fail over.
+    a.bus.peer_addrs.pop(id_r1.node_id, None)
+    a.bus.relay_id = None if a.bus.relay_id == id_r1.node_id else a.bus.relay_id
+    # (relay_id cleared only reflects our LOCAL view; R2 is still a candidate)
+    a.add_relay(id_r2.node_id)
+    got.clear()
+    a.bus.send(Message(id_a, id_b.node_id, "protos", [Prototype(np.zeros(4, dtype=np.float32), 2, 1.0)]))
+    via_backup = await _wait_for(lambda: len(got) >= 1)
+    r2_fwd = r2.bus.relayed_fwd
+
+    for n in (a, b, r1, r2):
+        await n.stop()
+
+    assert via_primary, "primary relay did not deliver"
+    assert r1_fwd_after >= 1, f"primary relay never forwarded (r1 fwd={r1_fwd_after})"
+    assert via_backup, "backup relay did not deliver after primary went down"
+    assert r2_fwd >= 1, f"backup relay never forwarded (r2 fwd={r2_fwd})"
+
+
 async def test_relay_off_by_default_no_wrapping():
     """With enable_relay unset (the default), marking a peer relay-only is a
     no-op and nothing is wrapped — the invariant that existing runs are
@@ -112,6 +166,8 @@ async def test_relay_off_by_default_no_wrapping():
 async def _run_all():
     await test_relay_delivers_gossip_and_learns_return_path()
     print("ok  test_relay_delivers_gossip_and_learns_return_path")
+    await test_multi_relay_fails_over_when_primary_unreachable()
+    print("ok  test_multi_relay_fails_over_when_primary_unreachable")
     await test_relay_off_by_default_no_wrapping()
     print("ok  test_relay_off_by_default_no_wrapping")
     print("all tests passed")
