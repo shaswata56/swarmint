@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Documentation — swarmint | decentralized swarm learning</title>
+<meta name="description" content="swarmint documentation: how decentralized, Byzantine-robust swarm learning works — prototype models, gossip federation, trust and corroboration, the P2P stack (Kademlia DHT, NAT traversal, relay fallback), distributed inference, install and quickstart.">
+<link rel="canonical" href="https://swarmint.org/docs.html">
+<meta name="theme-color" content="#0b1020">
+<meta name="keywords" content="swarmint documentation, decentralized learning, federated learning without central server, gossip protocol, byzantine fault tolerance, prototype learning, kademlia DHT, NAT traversal, peer-to-peer machine learning, edge AI, python">
+
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="swarmint">
+<meta property="og:title" content="swarmint documentation — decentralized, Byzantine-robust swarm learning">
+<meta property="og:description" content="How swarmint works: prototype models, gossip federation, Byzantine trust, the real P2P stack, distributed inference, install and quickstart.">
+<meta property="og:url" content="https://swarmint.org/docs.html">
+<meta property="og:image" content="https://swarmint.org/assets/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="swarmint documentation">
+<meta name="twitter:description" content="How decentralized, Byzantine-robust swarm learning works — concepts, architecture, P2P stack, install, quickstart.">
+<meta name="twitter:image" content="https://swarmint.org/assets/og-image.png">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "swarmint documentation — decentralized, Byzantine-robust swarm learning",
+  "description": "How swarmint works: prototype models, gossip federation, Byzantine trust and corroboration, the real P2P stack (Kademlia DHT, NAT traversal, relay fallback), distributed inference, install and quickstart.",
+  "author": { "@type": "Person", "name": "Shaswata Das" },
+  "url": "https://swarmint.org/docs.html",
+  "about": "Decentralized federated machine learning without a central server",
+  "programmingLanguage": "Python",
+  "license": "https://www.gnu.org/licenses/agpl-3.0.html"
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://swarmint.org/" },
+    { "@type": "ListItem", "position": 2, "name": "Documentation", "item": "https://swarmint.org/docs.html" }
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    { "@type": "Question", "name": "How is swarmint different from federated learning?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Classic federated learning averages neural-network weights and usually needs a central coordinator. swarmint shares bounded sets of labeled prototypes instead of gradients, merges them order-invariantly (so there is no weight-averaging fragility), and discovers peers over a Kademlia DHT (so there is no coordinator)." } },
+    { "@type": "Question", "name": "Does raw data ever leave the device?",
+      "acceptedAnswer": { "@type": "Answer", "text": "No. Nodes exchange prototypes — a small, bounded set of labeled exemplars — never raw training data or gradients." } },
+    { "@type": "Question", "name": "How does swarmint resist poisoning attacks?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Incoming prototypes are merge-validated, unverifiable classes require majority corroboration from multiple distinct senders, and each peer carries a reputation (trust) score. Label-flip attackers lose trust and are ignored; the swarm keeps converging with roughly 5% malicious nodes." } },
+    { "@type": "Question", "name": "Does it work across NATs and firewalls?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes. The stack uses UDP with Kademlia DHT discovery, peer-exchange, and NAT hole-punching, plus a relay fallback: when two peers cannot establish a direct path, they exchange gossip through a mutually reachable relay, with failover across multiple relays." } },
+    { "@type": "Question", "name": "What license is swarmint under?",
+      "acceptedAnswer": { "@type": "Answer", "text": "AGPL-3.0-or-later. It is open source; network use of a modified version requires publishing the source." } }
+  ]
+}
+</script>
+
+<link rel="stylesheet" href="styles.css">
+<script>
+  try {
+    var _t = localStorage.getItem('swarmint-theme');
+    if (_t && _t !== 'auto') document.documentElement.setAttribute('data-theme', _t);
+  } catch (e) {}
+</script>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="/"><span class="dot" aria-hidden="true"></span>swarmint</a>
+    <a class="navlink hide-sm" href="/#why">Why</a>
+    <a class="navlink hide-sm" href="/#results">Results</a>
+    <a class="navlink" href="docs.html">Docs</a>
+    <a class="navlink" href="https://github.com/shaswata56/swarmint" rel="noopener">GitHub</a>
+    <button id="theme-toggle" type="button" aria-label="Switch color theme" title="Switch color theme">◐ Auto</button>
+  </div>
+</nav>
+
+<main class="wrap" style="padding-top:40px;padding-bottom:60px">
+  <p style="color:var(--muted);font-size:14px;margin:0 0 6px">
+    <a href="/">Home</a> › Documentation
+  </p>
+  <h1 style="font-size:clamp(28px,5vw,40px);margin:0 0 8px">Documentation</h1>
+  <p class="lead" style="max-width:760px">
+    swarmint is a decentralized, Byzantine-robust swarm-learning system: many tiny models each
+    learn from local data and gossip <em>prototypes</em> — not gradients — peer-to-peer over a
+    real P2P network. This page explains how it works and how to run it. For source-level
+    detail see the <a href="https://github.com/shaswata56/swarmint#readme" rel="noopener">README on GitHub</a>.
+  </p>
+
+  <div class="doc-layout" style="margin-top:36px">
+    <aside class="doc-toc" aria-label="On this page">
+      <h4>On this page</h4>
+      <a href="#overview">Overview</a>
+      <a href="#install">Installation</a>
+      <a href="#quickstart">Quickstart</a>
+      <a href="#concepts">Core concepts</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#networking">P2P networking</a>
+      <a href="#inference">Distributed inference</a>
+      <a href="#config">Configuration</a>
+      <a href="#faq">FAQ</a>
+    </aside>
+
+    <article class="doc">
+      <section id="overview">
+        <h2>Overview <a class="anchor" href="#overview" aria-label="Link to Overview">#</a></h2>
+        <p>Each node runs a <b>prototype micro-model</b>: a bounded set of labeled exemplars with
+          nearest-neighbor prediction. Nodes learn from their own local, non-IID data (each sees
+          only a slice of the classes) and periodically <b>gossip</b> a sample of their prototypes
+          to peers. Because merging prototype sets is <b>order-invariant</b> (set union + prune),
+          there is no weight-averaging step to go wrong and no need for a coordinator to
+          synchronize rounds.</p>
+        <p>The result: a node ends up able to classify categories it never saw locally, pooled from
+          the swarm — approaching centralized accuracy while every node keeps its data private and
+          the network tolerates malicious peers.</p>
+        <div class="callout"><b>In one line:</b> order-invariant prototype merging removes the
+          averaging problem; gossip over a DHT removes the coordinator.</div>
+      </section>
+
+      <section id="install">
+        <h2>Installation <a class="anchor" href="#install" aria-label="Link to Installation">#</a></h2>
+        <p>Python 3.10+. The learning core needs only numpy; optional extras add the real P2P stack
+          and real-data validation.</p>
+        <div class="codeblock">
+<pre>git clone https://github.com/shaswata56/swarmint
+cd swarmint
+pip install -e ".[dev]"        <span class="c"># everything, for development</span>
+
+<span class="c"># or install just what you need:</span>
+pip install -e "."             <span class="c"># core (numpy-only, in-process simulator)</span>
+pip install -e ".[net]"        <span class="c"># + real UDP / Kademlia DHT / Ed25519 / msgpack</span>
+pip install -e ".[learn]"      <span class="c"># + scikit-learn for real-data + embeddings</span></pre>
+        </div>
+      </section>
+
+      <section id="quickstart">
+        <h2>Quickstart <a class="anchor" href="#quickstart" aria-label="Link to Quickstart">#</a></h2>
+        <p>Verify the project does what it claims, then see the smallest end-to-end example:</p>
+        <div class="codeblock">
+<pre><span class="c"># reproduce every headline claim as a PASS/FAIL table (~40s)</span>
+python benchmark.py
+
+<span class="c"># smallest end-to-end: specialists gossip into a full-task model</span>
+python examples/quickstart.py
+<span class="c">#  solo node (no gossip)  : 0.333</span>
+<span class="c">#  swarm node (gossip)    : 0.855</span>
+
+<span class="c"># real data, and real UDP + DHT across OS processes</span>
+python -m swarmint.sim.run_digits
+python -m swarmint.sim.run_multiproc
+python run_tests.py            <span class="c"># the test suite (no pytest needed)</span></pre>
+        </div>
+      </section>
+
+      <section id="concepts">
+        <h2>Core concepts <a class="anchor" href="#concepts" aria-label="Link to Core concepts">#</a></h2>
+        <h3>Prototype model</h3>
+        <p>A model is a bounded set of <code>(vector, label, weight)</code> prototypes. Prediction is
+          trust/weight-aware nearest-neighbor. Learning absorbs a new observation into a nearby
+          same-label prototype or adds a new one; pruning keeps the set bounded. Distance radii
+          (absorb / conflict / override) are <b>derived from data statistics</b>, not hardcoded.</p>
+        <h3>Gossip federation</h3>
+        <p>Every round, a node samples a few prototypes and pushes them to peers. Receivers merge
+          them. Over many rounds, knowledge diffuses so each node approaches full-task accuracy.</p>
+        <h3>Trust &amp; corroboration</h3>
+        <p>Each peer carries a reputation score. A prototype for a class the receiver can't verify
+          locally is <b>quarantined</b> until it is <b>corroborated</b> by a majority of distinct
+          senders — which defeats a lone (or small colluding) attacker. Verifiable poison is caught
+          by merge-validation against the receiver's own holdout.</p>
+        <h3>Byzantine robustness</h3>
+        <p>Label-flip attackers see their trust collapse and their updates rejected. The swarm stays
+          near its clean accuracy at roughly 5% malicious nodes; the safe fraction scales with how
+          much honest redundancy covers each class.</p>
+      </section>
+
+      <section id="architecture">
+        <h2>Architecture <a class="anchor" href="#architecture" aria-label="Link to Architecture">#</a></h2>
+        <p>swarmint is layered so the learning core stays transport-agnostic and synchronous, and
+          all networking/asynchrony lives at the edges:</p>
+        <ul>
+          <li><b>core/</b> — <code>PrototypeModel</code> (learn / predict / merge / prune), a scalar
+            logical clock, a signed tamper-evident update chain, and the shared genesis embedding.</li>
+          <li><b>node/</b> — <code>SwarmNode</code> (synchronous, representation-agnostic:
+            observe / gossip / receive / answer_query) and a <code>NetNode</code> that composes it
+            with the network stack.</li>
+          <li><b>network/</b> — the bus abstraction, an in-process simulator bus, a real UDP bus,
+            msgpack wire format, Ed25519 identity, Kademlia discovery, NAT traversal, and relay.</li>
+          <li><b>inference/</b> — trust-weighted aggregation and async request-collect RPC.</li>
+          <li><b>sim/</b> — runnable simulations and real-dataset harnesses.</li>
+        </ul>
+        <div class="callout">A firm invariant: <b>the learning core is frozen behavior</b> — merge,
+          trust, quarantine, corroboration and aggregation are byte-for-byte stable, and the
+          deterministic simulator reproduces the same accuracy. New behavior goes behind opt-in
+          flags with defaults unchanged.</div>
+      </section>
+
+      <section id="networking">
+        <h2>P2P networking <a class="anchor" href="#networking" aria-label="Link to P2P networking">#</a></h2>
+        <p>The real stack runs over UDP with a msgpack wire format and Ed25519-signed envelopes
+          (with a replay guard and a pubkey↔node-id binding, so a peer can't be impersonated).</p>
+        <ul>
+          <li><b>Discovery</b> — a Kademlia DHT rendezvous plus peer-exchange (PEX); nodes advertise
+            topics so gossip and queries can be routed to the relevant experts.</li>
+          <li><b>NAT traversal</b> — rendezvous-coordinated UDP hole-punching for peers behind
+            home/mobile NATs.</li>
+          <li><b>Relay fallback</b> — when a direct path can't be opened (e.g. symmetric NAT), peers
+            exchange gossip through a mutually reachable relay. The relayed payload is the original
+            signed envelope, so the destination still verifies the true sender, and routing fails
+            over across multiple relays so no single node is a point of failure.</li>
+        </ul>
+      </section>
+
+      <section id="inference">
+        <h2>Distributed inference <a class="anchor" href="#inference" aria-label="Link to Distributed inference">#</a></h2>
+        <p>A node can answer a query about classes it never learned by consulting the swarm: it
+          fans the query out to peers, each returns a label and confidence (abstaining when
+          off-manifold), and the answers are combined by a <b>trust-weighted plurality</b>. Trust is
+          calibrated on the querier's own holdout, so confidently-wrong experts get down-weighted —
+          the ensemble beats both local-only and naive-vote inference even with 30% liars.</p>
+      </section>
+
+      <section id="config">
+        <h2>Configuration <a class="anchor" href="#config" aria-label="Link to Configuration">#</a></h2>
+        <p>Behavior is controlled by explicit fields and opt-in flags rather than hidden globals:</p>
+        <ul>
+          <li><b>Distance radii</b> on the prototype model (absorb, conflict, override) — derive them
+            from your data's same-class vs cross-class distance statistics.</li>
+          <li><b>Byzantine gating</b> — corroboration radius and abstain margin on the node.</li>
+          <li><b>Networking</b> — <code>enable_nat</code>, <code>enable_relay</code>,
+            <code>enable_chain</code> on <code>NetNode</code>; a resource governor caps the
+            multiprocess harness (configurable via flags or <code>SWARMINT_*</code> env vars).</li>
+          <li><b>Shared genesis embedding</b> — an optional supervised projection, fit once at
+            genesis on a small public seed and distributed frozen, that lifts accuracy toward
+            centralized on many-shot data. Every node must use the identical projection.</li>
+        </ul>
+        <p>For exact APIs and field names, read the module docstrings and the
+          <a href="https://github.com/shaswata56/swarmint#readme" rel="noopener">README</a>.</p>
+      </section>
+
+      <section id="faq" class="faq">
+        <h2>FAQ <a class="anchor" href="#faq" aria-label="Link to FAQ">#</a></h2>
+        <details>
+          <summary>How is swarmint different from federated learning?</summary>
+          <p>Classic federated learning averages neural-network weights and usually needs a central
+            coordinator. swarmint shares bounded sets of labeled prototypes instead of gradients,
+            merges them order-invariantly (no weight-averaging fragility), and discovers peers over a
+            Kademlia DHT (no coordinator).</p>
+        </details>
+        <details>
+          <summary>Does raw data ever leave the device?</summary>
+          <p>No. Nodes exchange prototypes — a small, bounded set of labeled exemplars — never raw
+            training data or gradients.</p>
+        </details>
+        <details>
+          <summary>How does swarmint resist poisoning attacks?</summary>
+          <p>Incoming prototypes are merge-validated; unverifiable classes require majority
+            corroboration from multiple distinct senders; and each peer carries a reputation score.
+            Label-flip attackers lose trust and are ignored, and the swarm keeps converging at
+            roughly 5% malicious nodes.</p>
+        </details>
+        <details>
+          <summary>Does it work across NATs and firewalls?</summary>
+          <p>Yes — UDP with Kademlia DHT discovery, peer-exchange, and NAT hole-punching, plus a
+            relay fallback with multi-relay failover for peers that can't open a direct path.</p>
+        </details>
+        <details>
+          <summary>What license is swarmint under?</summary>
+          <p>AGPL-3.0-or-later. It's open source; network use of a modified version requires
+            publishing the source.</p>
+        </details>
+      </section>
+
+      <p style="margin-top:32px">
+        <a class="btn primary" href="https://github.com/shaswata56/swarmint" rel="noopener">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+          Read the source</a>
+      </p>
+    </article>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p><span class="strong">swarmint</span> — built in the open, licensed
+      <a href="https://www.gnu.org/licenses/agpl-3.0.html" rel="noopener">AGPL-3.0-or-later</a>.</p>
+    <p><a href="/">Home</a> &nbsp;·&nbsp;
+       <a href="https://github.com/shaswata56/swarmint" rel="noopener">GitHub</a> &nbsp;·&nbsp;
+       <a href="https://github.com/shaswata56/swarmint/blob/main/CONTRIBUTING.md" rel="noopener">Contribute</a></p>
+  </div>
+</footer>
+
+<script src="site.js" defer></script>
+</body>
+</html>

@@ -38,119 +38,9 @@
 }
 </script>
 
-<style>
-  :root {
-    --bg: #ffffff; --fg: #14181f; --muted: #5a6472; --line: #e6e8ec;
-    --card: #f7f8fa; --accent: #3b6ef5; --accent-fg: #ffffff; --code-bg: #0f1424; --code-fg: #d6e0ff;
-    --ok: #1a8f5a;
-    --maxw: 960px;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #0b1020; --fg: #e8ecf4; --muted: #99a3b5; --line: #222a3d;
-      --card: #121a2e; --accent: #6a93ff; --accent-fg: #0b1020; --code-bg: #060a16; --code-fg: #cdd8ff;
-      --ok: #46d38a;
-    }
-  }
-  :root[data-theme="light"] {
-    --bg:#fff; --fg:#14181f; --muted:#5a6472; --line:#e6e8ec; --card:#f7f8fa;
-    --accent:#3b6ef5; --accent-fg:#fff; --code-bg:#0f1424; --code-fg:#d6e0ff; --ok:#1a8f5a;
-  }
-  :root[data-theme="dark"] {
-    --bg:#0b1020; --fg:#e8ecf4; --muted:#99a3b5; --line:#222a3d; --card:#121a2e;
-    --accent:#6a93ff; --accent-fg:#0b1020; --code-bg:#060a16; --code-fg:#cdd8ff; --ok:#46d38a;
-  }
-  * { box-sizing: border-box; }
-  html { -webkit-text-size-adjust: 100%; }
-  body {
-    margin: 0; background: var(--bg); color: var(--fg);
-    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    -webkit-font-smoothing: antialiased;
-  }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 20px; }
-  code, pre { font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; }
-
-  header.hero {
-    position: relative; overflow: hidden;
-    text-align: center; padding: 84px 20px 56px;
-    background: radial-gradient(1200px 400px at 50% -80px, color-mix(in srgb, var(--accent) 18%, transparent), transparent);
-    border-bottom: 1px solid var(--line);
-  }
-  #swarm {
-    position: absolute; inset: 0; width: 100%; height: 100%;
-    z-index: 0; pointer-events: none;
-    -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent);
-            mask-image: linear-gradient(to bottom, #000 55%, transparent);
-  }
-  header.hero .wrap { position: relative; z-index: 1; }
-  .mark { font-size: 15px; letter-spacing: .28em; text-transform: uppercase; color: var(--accent); font-weight: 700; }
-  h1 { font-size: clamp(30px, 6vw, 52px); line-height: 1.1; margin: 14px 0 10px; letter-spacing: -.02em; }
-  .tag { font-size: clamp(16px, 2.6vw, 21px); color: var(--fg); max-width: 640px; margin: 0 auto 8px; font-weight: 500; }
-  .sub { color: var(--muted); max-width: 620px; margin: 0 auto 26px; }
-  .badges { color: var(--muted); font-size: 13.5px; margin-top: 22px; }
-  .badges b { color: var(--fg); font-weight: 600; }
-
-  .btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-  .btn {
-    display: inline-block; padding: 11px 20px; border-radius: 10px; font-weight: 600; font-size: 15px;
-    border: 1px solid var(--line);
-  }
-  .btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
-  .btn.primary:hover { text-decoration: none; filter: brightness(1.06); }
-  .btn.ghost { background: transparent; color: var(--fg); }
-  .btn.ghost:hover { text-decoration: none; border-color: var(--accent); }
-
-  section { padding: 54px 0; border-bottom: 1px solid var(--line); }
-  h2 { font-size: clamp(22px, 4vw, 30px); letter-spacing: -.01em; margin: 0 0 8px; }
-  .lead { color: var(--muted); max-width: 720px; margin: 0 0 26px; }
-
-  .trio { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-  .trio .t { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
-  .trio .t b { display: block; font-size: 16px; margin-bottom: 4px; }
-  .trio .t span { color: var(--muted); font-size: 14.5px; }
-
-  table { width: 100%; border-collapse: collapse; font-size: 15px; overflow: hidden; }
-  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
-  th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
-  tr:last-child td { border-bottom: none; }
-  td.win { color: var(--ok); font-weight: 700; }
-  .note { color: var(--muted); font-size: 13.5px; margin-top: 12px; }
-
-  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
-  .card h3 { margin: 0 0 6px; font-size: 17px; }
-  .card p { margin: 0; color: var(--muted); font-size: 14.5px; }
-
-  pre {
-    background: var(--code-bg); color: var(--code-fg); padding: 18px 20px; border-radius: 12px;
-    overflow-x: auto; font-size: 13.5px; line-height: 1.7; margin: 0;
-  }
-  pre .c { color: #7f8cad; }
-
-  footer { padding: 40px 0 60px; color: var(--muted); font-size: 14px; text-align: center; }
-  footer a { color: var(--muted); }
-  footer .strong { color: var(--fg); }
-
-  #theme-toggle {
-    position: fixed; top: 14px; right: 14px; z-index: 20;
-    background: var(--card); color: var(--fg); border: 1px solid var(--line);
-    border-radius: 999px; padding: 7px 13px; cursor: pointer;
-    font: 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    display: inline-flex; align-items: center; gap: 6px; user-select: none;
-    box-shadow: 0 1px 3px rgba(0,0,0,.08);
-  }
-  #theme-toggle:hover { border-color: var(--accent); }
-
-  @media (max-width: 680px) {
-    .trio, .grid { grid-template-columns: 1fr; }
-  }
-</style>
+<link rel="stylesheet" href="styles.css">
 <script>
-  /* Apply a saved theme choice before first paint (no flash). Default is
-     'auto' = follow the OS via prefers-color-scheme; user can override. */
+  /* Apply a saved theme choice before first paint (no flash). Default 'auto'. */
   try {
     var _t = localStorage.getItem('swarmint-theme');
     if (_t && _t !== 'auto') document.documentElement.setAttribute('data-theme', _t);
@@ -159,7 +49,16 @@
 </head>
 <body>
 
-<button id="theme-toggle" type="button" aria-label="Switch color theme" title="Switch color theme">◐ Auto</button>
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="/"><span class="dot" aria-hidden="true"></span>swarmint</a>
+    <a class="navlink hide-sm" href="#why">Why</a>
+    <a class="navlink hide-sm" href="#results">Results</a>
+    <a class="navlink" href="docs.html">Docs</a>
+    <a class="navlink" href="https://github.com/shaswata56/swarmint" rel="noopener">GitHub</a>
+    <button id="theme-toggle" type="button" aria-label="Switch color theme" title="Switch color theme">◐ Auto</button>
+  </div>
+</nav>
 
 <header class="hero">
   <canvas id="swarm" aria-hidden="true"></canvas>
@@ -172,21 +71,23 @@
       No raw data ever leaves the device — and the swarm keeps converging even while malicious
       nodes try to poison it.</p>
     <div class="btns">
-      <a class="btn primary" href="https://github.com/shaswata56/swarmint">View on GitHub</a>
+      <a class="btn primary" href="https://github.com/shaswata56/swarmint" rel="noopener">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        View on GitHub</a>
+      <a class="btn ghost" href="docs.html">Read the docs <span class="arrow" aria-hidden="true">→</span></a>
       <a class="btn ghost" href="#quickstart">Quickstart</a>
-      <a class="btn ghost" href="https://github.com/shaswata56/swarmint#readme">Docs</a>
     </div>
-    <p class="badges"><b>AGPL-3.0</b> &nbsp;·&nbsp; <b>Python 3.10+</b> &nbsp;·&nbsp; <b>v0.1</b> (research prototype) &nbsp;·&nbsp; 81 tests passing</p>
+    <p class="badges"><b>AGPL-3.0</b> &nbsp;·&nbsp; <b>Python 3.10+</b> &nbsp;·&nbsp; <b>v0.1</b> (research prototype) &nbsp;·&nbsp; CI-verified claims</p>
   </div>
 </header>
 
-<section>
+<section id="why">
   <div class="wrap">
     <h2>Why swarmint</h2>
     <p class="lead">Federated learning that averages neural-net weights is fragile and usually
       needs a central coordinator. swarmint removes both: order-invariant prototype merging
       eliminates the averaging problem, and gossip over a DHT eliminates the coordinator.</p>
-    <div class="trio">
+    <div class="trio reveal">
       <div class="t"><b>No central server</b><span>Peers discover each other over a Kademlia DHT and gossip directly. Nothing to run, nothing to trust in the middle.</span></div>
       <div class="t"><b>No gradient sharing</b><span>Nodes exchange bounded sets of labeled prototypes, not gradients or raw data. Merging is order-invariant, so there's no weight-averaging fragility.</span></div>
       <div class="t"><b>Poison-resistant</b><span>Merge-validation, corroboration, and reputation make label-flip attacks fail. Malicious nodes lose trust and get ignored.</span></div>
@@ -194,12 +95,13 @@
   </div>
 </section>
 
-<section>
+<section id="results">
   <div class="wrap">
     <h2>It works on real data</h2>
     <p class="lead">Each node sees only a slice of the classes; gossip pools them so every node
-      approaches full-task accuracy — validated on synthetic and two real datasets.</p>
-    <div class="tablewrap">
+      approaches full-task accuracy — validated on synthetic and two real datasets. Every claim
+      below is reproduced by <code>python benchmark.py</code> and enforced in CI.</p>
+    <div class="tablewrap reveal">
       <table>
         <thead><tr><th>Setting</th><th>Solo baseline</th><th>Swarm</th><th>Notes</th></tr></thead>
         <tbody>
@@ -215,13 +117,13 @@
   </div>
 </section>
 
-<section>
+<section id="inside">
   <div class="wrap">
     <h2>What's inside</h2>
-    <div class="grid">
+    <div class="grid reveal">
       <div class="card"><h3>Gossip federation</h3><p>Push-based prototype gossip with corroboration — each node learns classes it never saw locally, pooled from the swarm.</p></div>
       <div class="card"><h3>Byzantine trust</h3><p>Reputation + merge-rollback + majority corroboration. Poisoned updates are rejected; attackers' trust collapses.</p></div>
-      <div class="card"><h3>Real P2P stack</h3><p>UDP transport, Kademlia DHT discovery, peer-exchange, Ed25519-signed messages with replay protection, and NAT hole-punching.</p></div>
+      <div class="card"><h3>Real P2P stack</h3><p>UDP transport, Kademlia DHT discovery, peer-exchange, Ed25519-signed messages with replay protection, NAT hole-punching, and relay fallback.</p></div>
       <div class="card"><h3>Distributed inference</h3><p>Trust-weighted mixture-of-experts: a node answers queries about classes it never learned by consulting the swarm.</p></div>
       <div class="card"><h3>Tamper-evident history</h3><p>Each node keeps a signed, append-only hash-chain of its model checkpoints — auditable and non-repudiable, no consensus required.</p></div>
       <div class="card"><h3>Multimodal &amp; embeddings</h3><p>Encoder-free late fusion across modalities, plus an optional shared genesis embedding that lifts accuracy toward centralized.</p></div>
@@ -232,59 +134,35 @@
 <section id="quickstart">
   <div class="wrap">
     <h2>Quickstart</h2>
-    <p class="lead">Runs on numpy alone. See gossip beat solo in one command.</p>
+    <p class="lead">Runs on numpy alone. See gossip beat solo in one command — then dig into the
+      <a href="docs.html">full documentation</a>.</p>
+    <div class="codeblock reveal">
 <pre><span class="c"># install (core is numpy-only; extras add real P2P + real-data validation)</span>
 git clone https://github.com/shaswata56/swarmint
 cd swarmint &amp;&amp; pip install -e ".[dev]"
 
+<span class="c"># reproduce every headline claim in one table (~40s)</span>
+python benchmark.py
+
 <span class="c"># smallest end-to-end: specialists gossip into a full-task model</span>
 python examples/quickstart.py
-<span class="c">#  each node sees only 2 of 6 classes  (solo ceiling ~ 0.33)</span>
 <span class="c">#  solo node (no gossip)  : 0.333</span>
-<span class="c">#  swarm node (gossip)    : 0.855</span>
-
-<span class="c"># real data, and real UDP + DHT across OS processes</span>
-python -m swarmint.sim.run_digits
-python -m swarmint.sim.run_multiproc</pre>
+<span class="c">#  swarm node (gossip)    : 0.855</span></pre>
+    </div>
   </div>
 </section>
 
 <footer>
   <div class="wrap">
     <p><span class="strong">swarmint</span> — built in the open, licensed
-      <a href="https://www.gnu.org/licenses/agpl-3.0.html">AGPL-3.0-or-later</a>.</p>
-    <p><a href="https://github.com/shaswata56/swarmint">GitHub</a> &nbsp;·&nbsp;
-       <a href="https://github.com/shaswata56/swarmint/blob/main/CONTRIBUTING.md">Contribute</a> &nbsp;·&nbsp;
-       <a href="https://github.com/shaswata56/swarmint#readme">Documentation</a></p>
+      <a href="https://www.gnu.org/licenses/agpl-3.0.html" rel="noopener">AGPL-3.0-or-later</a>.</p>
+    <p><a href="https://github.com/shaswata56/swarmint" rel="noopener">GitHub</a> &nbsp;·&nbsp;
+       <a href="docs.html">Documentation</a> &nbsp;·&nbsp;
+       <a href="https://github.com/shaswata56/swarmint/blob/main/CONTRIBUTING.md" rel="noopener">Contribute</a></p>
   </div>
 </footer>
 
-<script>
-  /* Theme choice: Auto (follow OS) -> Light -> Dark, cycling. Default Auto.
-     Persisted; the early <head> script applies it before paint next visit. */
-  (function () {
-    var KEY = 'swarmint-theme', MODES = ['auto', 'light', 'dark'];
-    var LABEL = { auto: '◐ Auto', light: '☀ Light', dark: '☾ Dark' };
-    var root = document.documentElement, btn = document.getElementById('theme-toggle');
-    var cur;
-    try { cur = localStorage.getItem(KEY) || 'auto'; } catch (e) { cur = 'auto'; }
-    if (MODES.indexOf(cur) < 0) cur = 'auto';
-
-    function apply(m) {
-      if (m === 'auto') root.removeAttribute('data-theme');
-      else root.setAttribute('data-theme', m);
-      if (btn) btn.textContent = LABEL[m];
-      if (window.__swarmAccentRefresh) window.__swarmAccentRefresh();  // recolor the swarm
-    }
-    apply(cur);
-    if (btn) btn.addEventListener('click', function () {
-      cur = MODES[(MODES.indexOf(cur) + 1) % MODES.length];
-      try { localStorage.setItem(KEY, cur); } catch (e) {}
-      apply(cur);
-    });
-  })();
-</script>
-
+<script src="site.js" defer></script>
 <script>
 /* Hero swarm: a live picture of the software itself — nodes drift, form gossip
    links by proximity, and pulses travel those links (gossip in flight). Capped
@@ -297,7 +175,6 @@ python -m swarmint.sim.run_multiproc</pre>
 
   var W = 0, H = 0, dpr = Math.min(window.devicePixelRatio || 1, 2);
   var nodes = [], pulses = [], LINK = 130, running = true;
-  // cursor acts as an ephemeral node the swarm gathers around
   var mouse = { x: 0, y: 0, active: false }, PULL = 140, MAXV = 0.85;
 
   function accent() {
@@ -305,14 +182,13 @@ python -m swarmint.sim.run_multiproc</pre>
     return c || '#6a93ff';
   }
   var COLOR = accent();
-  window.__swarmAccentRefresh = function () { COLOR = accent(); };  // recolor on theme change
+  window.__swarmAccentRefresh = function () { COLOR = accent(); };
 
   function resize() {
     var host = canvas.parentElement;
     W = host.clientWidth; H = host.clientHeight;
     canvas.width = W * dpr; canvas.height = H * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    // node count scales with area, capped low on small screens for perf
     var target = Math.max(18, Math.min(64, Math.round(W * H / 16000)));
     nodes = [];
     for (var i = 0; i < target; i++) {
@@ -338,26 +214,24 @@ python -m swarmint.sim.run_multiproc</pre>
     var rc = rgb[0] + ',' + rgb[1] + ',' + rgb[2];
     ctx.clearRect(0, 0, W, H);
 
-    // move (+ gentle attraction toward the cursor when it's over the hero)
     for (var i = 0; i < nodes.length; i++) {
       var p = nodes[i];
       if (mouse.active) {
         var mdx = mouse.x - p.x, mdy = mouse.y - p.y;
         var md = Math.sqrt(mdx * mdx + mdy * mdy);
         if (md < PULL && md > 1) {
-          var f = 0.04 * (1 - md / PULL);          // subtle, distance-weighted lean
+          var f = 0.04 * (1 - md / PULL);
           p.vx += (mdx / md) * f; p.vy += (mdy / md) * f;
         }
-        var sp = Math.sqrt(p.vx * p.vx + p.vy * p.vy);   // clamp so it never explodes
+        var sp = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
         if (sp > MAXV) { p.vx = (p.vx / sp) * MAXV; p.vy = (p.vy / sp) * MAXV; }
-        p.vx *= 0.95; p.vy *= 0.95;                        // stronger damping -> nodes settle, don't clump
+        p.vx *= 0.95; p.vy *= 0.95;
       }
       p.x += p.vx; p.y += p.vy;
       if (p.x < 0 || p.x > W) p.vx *= -1;
       if (p.y < 0 || p.y > H) p.vy *= -1;
     }
 
-    // gossip links by proximity
     for (var a = 0; a < nodes.length; a++) {
       for (var b = a + 1; b < nodes.length; b++) {
         var dx = nodes[a].x - nodes[b].x, dy = nodes[a].y - nodes[b].y;
@@ -370,7 +244,6 @@ python -m swarmint.sim.run_multiproc</pre>
       }
     }
 
-    // occasionally launch a gossip pulse along a nearby pair
     if (pulses.length < 6 && Math.random() < 0.05) {
       var s = nodes[(Math.random() * nodes.length) | 0];
       var near = null, best = LINK;
@@ -381,7 +254,6 @@ python -m swarmint.sim.run_multiproc</pre>
       }
       if (near) pulses.push({ a: s, b: near, t: 0 });
     }
-    // draw + advance pulses
     for (var pi = pulses.length - 1; pi >= 0; pi--) {
       var pu = pulses[pi]; pu.t += 0.03;
       if (pu.t >= 1) { pulses.splice(pi, 1); continue; }
@@ -391,7 +263,6 @@ python -m swarmint.sim.run_multiproc</pre>
       ctx.beginPath(); ctx.arc(px, py, 2.2, 0, 6.283); ctx.fill();
     }
 
-    // cursor links: the visitor is a node too — connect to nearby swarm nodes
     if (mouse.active) {
       for (var m = 0; m < nodes.length; m++) {
         var mx = mouse.x - nodes[m].x, my = mouse.y - nodes[m].y;
@@ -404,7 +275,6 @@ python -m swarmint.sim.run_multiproc</pre>
       }
     }
 
-    // draw nodes
     for (var n = 0; n < nodes.length; n++) {
       ctx.fillStyle = 'rgba(' + rc + ',0.55)';
       ctx.beginPath(); ctx.arc(nodes[n].x, nodes[n].y, nodes[n].r, 0, 6.283); ctx.fill();
@@ -413,7 +283,7 @@ python -m swarmint.sim.run_multiproc</pre>
     requestAnimationFrame(step);
   }
 
-  function drawStatic() {  // reduced-motion: one calm frame, no animation loop
+  function drawStatic() {
     running = false;
     var rgb = hexToRgb(COLOR.startsWith('#') ? COLOR : '#6a93ff');
     var rc = rgb[0] + ',' + rgb[1] + ',' + rgb[2];
@@ -427,8 +297,6 @@ python -m swarmint.sim.run_multiproc</pre>
     for (var n = 0; n < nodes.length; n++) { ctx.fillStyle='rgba('+rc+',0.5)'; ctx.beginPath(); ctx.arc(nodes[n].x,nodes[n].y,nodes[n].r,0,6.283); ctx.fill(); }
   }
 
-  // cursor interaction (enhancement only; ambient animation runs regardless).
-  // Listen on the hero element since the canvas is pointer-events:none.
   if (!reduce) {
     var hero = canvas.parentElement;
     hero.addEventListener('mousemove', function (e) {
