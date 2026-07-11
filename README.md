@@ -51,12 +51,18 @@ pip install -e ".[dev]"     # + real P2P networking, real-data validation, clust
 ## Quickstart
 
 ```bash
+python benchmark.py                     # reproduce the headline claims (~40s, one table)
 python examples/quickstart.py           # smallest end-to-end: gossip beats solo
-python -m swarmint.sim.run_sim          # 100-node learning sim (synthetic)
+python -m swarmint.sim.run_sim          # 100-node learning sim (synthetic, exact 0.959)
 python -m swarmint.sim.run_digits       # real data (sklearn digits): swarm vs solo
 python -m swarmint.sim.run_multiproc    # real UDP + DHT across OS processes
 python run_tests.py                     # the test suite (plain scripts, no pytest needed)
 ```
+
+`python benchmark.py` is the fastest way to verify the project does what it
+claims: it runs the federation, Byzantine-suppression, distributed-inference,
+and cross-NAT-relay scenarios and prints a PASS/FAIL table (exit code 0 iff all
+pass), so it doubles as a regression guard for the headline behaviour.
 
 The full experimental record — including negative results and design reasoning —
 is in the **Experimental record** section below.

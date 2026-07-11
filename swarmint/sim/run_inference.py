@@ -105,6 +105,9 @@ def main():
                and mal_trust < hon_trust else "FAIL")
     print(f"\n{verdict}: trust-ensemble {acc_trust:.3f} beats local {acc_local:.3f} "
           f"and naive {acc_naive:.3f}; malicious downweighted")
+    return {"acc_local": acc_local, "acc_naive": acc_naive, "acc_trust": acc_trust,
+            "trust_malicious": float(mal_trust), "trust_honest": float(hon_trust),
+            "n_experts": N_EXPERTS, "n_malicious": N_MALICIOUS}
 
 
 if __name__ == "__main__":

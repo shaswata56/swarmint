@@ -29,9 +29,9 @@ SAMPLES_PER_ROUND = 4
 SEED = 42
 
 
-def build_nodes(bus, rng, malicious_ids):
+def build_nodes(bus, rng, malicious_ids, n_nodes=N_NODES):
     nodes = []
-    for i in range(N_NODES):
+    for i in range(n_nodes):
         nodes.append(
             SwarmNode(
                 node_id=i, topic=1, bus=bus,
@@ -45,7 +45,10 @@ def build_nodes(bus, rng, malicious_ids):
     return nodes
 
 
-def main():
+def main(n_nodes=N_NODES, rounds=ROUNDS, n_malicious=N_MALICIOUS):
+    """Defaults reproduce the canonical 100-node / 100-round run (the exact
+    0.959 headline). The benchmark passes a smaller config for a quick check;
+    the swarm>>solo and Byzantine claims hold at any reasonable scale."""
     rng = np.random.default_rng(SEED)
     py_rng = random.Random(SEED)
     centers = make_world(N_CLASSES, DIM, seed=SEED)
@@ -53,21 +56,21 @@ def main():
 
     # Per-node class assignment (shared by swarm and solo arms for fairness).
     assignments = [
-        sorted(py_rng.sample(range(N_CLASSES), CLASSES_PER_NODE)) for _ in range(N_NODES)
+        sorted(py_rng.sample(range(N_CLASSES), CLASSES_PER_NODE)) for _ in range(n_nodes)
     ]
-    malicious_ids = set(py_rng.sample(range(N_NODES), N_MALICIOUS))
+    malicious_ids = set(py_rng.sample(range(n_nodes), n_malicious))
 
     bus = SimBus(loss_rate=0.05, max_latency_ticks=2, rng=random.Random(SEED))
-    swarm = build_nodes(bus, py_rng, malicious_ids)
-    solo = build_nodes(SimBus(rng=random.Random(SEED)), py_rng, set())  # never gossips
+    swarm = build_nodes(bus, py_rng, malicious_ids, n_nodes)
+    solo = build_nodes(SimBus(rng=random.Random(SEED)), py_rng, set(), n_nodes)  # never gossips
 
     honest = [n for n in swarm if not n.malicious]
     rows = []
-    per_node_streams = [np.random.default_rng(SEED * 7 + i) for i in range(N_NODES)]
+    per_node_streams = [np.random.default_rng(SEED * 7 + i) for i in range(n_nodes)]
 
-    for r in range(1, ROUNDS + 1):
+    for r in range(1, rounds + 1):
         # 1. everyone observes local data
-        for i in range(N_NODES):
+        for i in range(n_nodes):
             xs, ys = sample(centers, assignments[i], SAMPLES_PER_ROUND, per_node_streams[i])
             for x, y in zip(xs, ys):
                 swarm[i].observe(x, int(y))
@@ -111,6 +114,9 @@ def main():
     verdict = "PASS" if final[1] > final[2] + 0.15 and final[3] < final[4] else "FAIL"
     print(f"\n{verdict}: swarm {final[1]:.3f} vs solo {final[2]:.3f}; "
           f"malicious trust {final[3]:.3f} vs honest trust {final[4]:.3f}")
+    return {"swarm_acc": final[1], "solo_acc": final[2],
+            "trust_malicious": final[3], "trust_honest": final[4],
+            "rounds": final[0], "n_nodes": n_nodes, "n_malicious": n_malicious}
 
 
 if __name__ == "__main__":

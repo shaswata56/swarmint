@@ -26,3 +26,17 @@ jobs:
 
       - name: Run test suite
         run: python run_tests.py
+
+  benchmark:
+    # Reproduce the headline claims (federation, Byzantine, inference, relay) on
+    # one interpreter — a regression guard for the behaviour, not just the code.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install swarmint (dev extras)
+        run: pip install -e ".[dev]"
+      - name: Reproduce headline claims
+        run: python benchmark.py
