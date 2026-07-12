@@ -177,6 +177,75 @@ class LDAEmbedding(Embedding):
         return self
 
 
+@dataclass
+class NCAEmbedding(Embedding):
+    """LEARNED metric via Neighborhood Components Analysis, fit at genesis.
+
+    WHY this over LDA (Zone-2 lever): the prototype model IS 1-NN, and NCA learns
+    the linear transform that directly MAXIMIZES a stochastic 1-NN objective on the
+    genesis seed — not just the between/within class-scatter ratio LDA optimizes.
+    LDA is also hard-capped at n_classes-1 dims (9 for digits); NCA can keep more,
+    letting it separate classes LDA collapses. The learned transform L is exactly a
+    linear op (transform(X) = X @ L^T), so it FREEZES to (mean=0, W=L^T) and
+    distributes byte-identically like every other genesis embedding — the shared-
+    space invariant holds. This is a learned METRIC that stays shareable.
+    """
+    out_dim: int = None    # default = n_classes (NCA is not rank-capped like LDA)
+    max_iter: int = 80
+    seed: int = 0
+
+    def fit(self, X, y=None):
+        from sklearn.neighbors import NeighborhoodComponentsAnalysis
+        X = np.asarray(X, dtype=np.float32)
+        y = np.asarray(y)
+        k = self.out_dim if self.out_dim is not None else len(np.unique(y))
+        k = min(k, X.shape[1])
+        # LDA init is capped at n_classes-1 dims; use PCA init above that.
+        init = "lda" if k <= len(np.unique(y)) - 1 else "pca"
+        nca = NeighborhoodComponentsAnalysis(
+            n_components=k, max_iter=self.max_iter, random_state=self.seed,
+            init=init).fit(X, y)
+        self.mean = np.zeros(X.shape[1], dtype=np.float32)   # NCA does not center
+        self.W = nca.components_.T.astype(np.float32)         # (in, k): X @ W == nca.transform
+        self.fitted = True
+        return self
+
+
+@dataclass
+class MahalanobisEmbedding(Embedding):
+    """Whitened-Mahalanobis metric, fit at genesis — a learned metric that keeps
+    FULL dimensionality (unlike LDA's n_classes-1 cap).
+
+    Whiten by the pooled within-class covariance Sw: W = Sw^{-1/2}. Euclidean
+    distance in the whitened space equals the Mahalanobis distance w.r.t. Sw, so
+    directions with large within-class spread (noise) are down-weighted and tight
+    class structure is amplified. Still a frozen linear (mean, W) op -> shareable.
+    `shrink` regularizes Sw toward its diagonal (Ledoit-Wolf-style) so the inverse
+    is stable on a modest genesis seed."""
+    shrink: float = 0.1
+
+    def fit(self, X, y=None):
+        X = np.asarray(X, dtype=np.float32)
+        y = np.asarray(y)
+        d = X.shape[1]
+        Sw = np.zeros((d, d), dtype=np.float64)
+        for c in np.unique(y):
+            Xc = X[y == c]
+            Xc = Xc - Xc.mean(axis=0, keepdims=True)
+            Sw += Xc.T @ Xc
+        Sw /= max(len(y) - len(np.unique(y)), 1)
+        # shrink toward diagonal for a stable inverse on a small seed
+        Sw = (1 - self.shrink) * Sw + self.shrink * np.diag(np.diag(Sw))
+        Sw += 1e-6 * np.eye(d)
+        evals, evecs = np.linalg.eigh(Sw)
+        evals = np.clip(evals, 1e-8, None)
+        W = evecs @ np.diag(evals ** -0.5) @ evecs.T   # Sw^{-1/2}
+        self.mean = X.mean(axis=0).astype(np.float32)
+        self.W = W.astype(np.float32)
+        self.fitted = True
+        return self
+
+
 def genesis_seed_split(X, y, n_classes, per_class, rng):
     """Carve a small stratified PUBLIC seed (per_class samples/class) to fit the
     genesis embedding on, leaving the rest for the swarm. Mirrors the spec's

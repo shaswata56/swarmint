@@ -2,6 +2,7 @@
 serialization (the 'distribute a frozen matrix' story), and the shared-space
 invariant (per-node fitting breaks comparability)."""
 
+import os
 import sys
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from swarmint.core.embedding import (Embedding, IdentityEmbedding, LDAEmbedding,
+                                      MahalanobisEmbedding, NCAEmbedding,
                                       PCAEmbedding, RandomProjectionEmbedding,
                                       genesis_seed_split)
 
@@ -133,6 +135,71 @@ def test_lda_embedding_beats_raw_on_digits_with_adequate_seed():
                        embedding=LDAEmbedding().fit(Xs, ys))
     assert lda["acc"] > raw["acc"] + 0.10, f"LDA {lda['acc']:.3f} not clearly above raw {raw['acc']:.3f}"
     assert lda["trust_malicious"] < lda["trust_honest"]  # Byzantine separation preserved
+
+
+def test_nca_frozen_linear_matches_sklearn():
+    """A learned NCA metric freezes to (mean=0, W=components^T): the frozen op
+    must equal sklearn's transform, so it distributes like every other genesis
+    embedding (Zone-2 learned-metric candidate)."""
+    try:
+        from sklearn.neighbors import NeighborhoodComponentsAnalysis
+    except Exception as e:
+        print(f"skip test_nca_frozen_linear_matches_sklearn: {e}")
+        return
+    X, y, nc = _blobs(n_classes=6)
+    emb = NCAEmbedding(out_dim=4, max_iter=20, seed=0).fit(X, y)
+    nca = NeighborhoodComponentsAnalysis(n_components=4, max_iter=20,
+                                         random_state=0, init="lda").fit(X, y)
+    manual = (X - emb.mean) @ emb.W                 # frozen linear op, mean is zeros
+    assert np.allclose(manual, nca.transform(X), atol=1e-3)
+    assert np.allclose(emb.mean, 0.0)
+
+
+def test_mahalanobis_whitens_within_class_scatter():
+    """Whitened-Mahalanobis: within-class covariance in the transformed space
+    should be ~isotropic (that IS the metric it learns)."""
+    X, y, _ = _blobs(n_classes=6, dim=20)
+    Z = MahalanobisEmbedding(shrink=0.0).fit(X, y).transform(X)
+    # pooled within-class covariance of Z should be near-isotropic (eigs similar);
+    # measure condition number of the within-class scatter — near 1 = whitened.
+    Sw = np.zeros((Z.shape[1], Z.shape[1]))
+    for c in np.unique(y):
+        Zc = Z[y == c] - Z[y == c].mean(0)
+        Sw += Zc.T @ Zc
+    eig = np.linalg.eigvalsh(Sw)
+    eig = eig[eig > 1e-9]
+    assert eig.max() / eig.min() < 50, "within-class scatter not whitened"
+
+
+def test_learned_metrics_do_not_beat_lda_on_digits():
+    """ZONE-2 negative result (documented, first-class): a LEARNED shareable
+    metric (NCA, which optimizes exactly the 1-NN objective the model uses) does
+    NOT beat the supervised-LDA genesis embedding on digits. This is the evidence
+    that the ~0.88 ceiling is STRUCTURAL (Byzantine gating + bounded memory), not
+    the distance metric. If a future change makes a learned metric clearly win,
+    this test should be revisited — that would be a real advance."""
+    try:
+        from sklearn.datasets import load_digits
+        from swarmint.sim.real_data import run_swarm_on
+    except Exception as e:
+        print(f"skip test_learned_metrics_do_not_beat_lda_on_digits: {e}")
+        return
+    if os.environ.get("SWARMINT_SLOW_TESTS") != "1":
+        print("skip test_learned_metrics_do_not_beat_lda_on_digits (set SWARMINT_SLOW_TESTS=1)")
+        return
+    d = load_digits()
+    X, y = d.data.astype(np.float32), d.target.astype(int)
+    rng = np.random.default_rng(0)
+    (Xs, ys), (Xr, yr) = genesis_seed_split(X, y, 10, per_class=40, rng=rng)
+    common = dict(n_classes=10, classes_per_node=2, n_nodes=40, n_malicious=2,
+                  rounds=100, seed=5, log=False)
+    lda = run_swarm_on(Xr, yr, embedding=LDAEmbedding().fit(Xs, ys), **common)
+    nca = run_swarm_on(Xr, yr, embedding=NCAEmbedding(out_dim=10, max_iter=80).fit(Xs, ys), **common)
+    # LDA holds; NCA does not clearly exceed it -> ceiling is not the metric.
+    assert lda["acc"] >= nca["acc"] - 0.01, (
+        f"NCA {nca['acc']:.3f} unexpectedly beat LDA {lda['acc']:.3f} — revisit the "
+        f"structural-ceiling conclusion")
+    assert lda["trust_malicious"] < lda["trust_honest"]
 
 
 if __name__ == "__main__":

@@ -12,7 +12,8 @@ import time
 
 import numpy as np
 
-from ..core.embedding import (IdentityEmbedding, LDAEmbedding, PCAEmbedding,
+from ..core.embedding import (IdentityEmbedding, LDAEmbedding,
+                              MahalanobisEmbedding, NCAEmbedding, PCAEmbedding,
                               RandomProjectionEmbedding, genesis_seed_split)
 from .real_data import run_swarm_on
 
@@ -39,6 +40,9 @@ def main():
         "random  (JL 32-d)": RandomProjectionEmbedding(out_dim=32, seed=1).fit(Xs),
         "pca     (32-d)": PCAEmbedding(out_dim=32).fit(Xs),
         "lda     (9-d)": LDAEmbedding().fit(Xs, ys),
+        "mahal   (64-d)": MahalanobisEmbedding().fit(Xs, ys),
+        "nca     (10-d)": NCAEmbedding(out_dim=10).fit(Xs, ys),
+        "nca     (20-d)": NCAEmbedding(out_dim=20).fit(Xs, ys),
     }
 
     print(f"genesis seed: {len(ys)} samples ({per_class}/class); swarm trains on {len(yr)} remaining\n")
@@ -59,6 +63,13 @@ def main():
           "PCA (unsupervised) barely helps; too-small a seed makes LDA overfit and hurt. "
           "So the lever needs enough PUBLIC labeled data — it fits many-shot data (digits), "
           "not few-shot (faces has only 10/class, can't spare a good seed).")
+    print("Zone-2 (learned metric): NCA — which optimizes the exact 1-NN objective the "
+          "prototype model uses — does NOT beat LDA (0.84 vs 0.88); whitened-Mahalanobis is "
+          "far worse (0.48, it amplifies noisy within-class directions). NEGATIVE RESULT: the "
+          "~0.88 digits ceiling is STRUCTURAL (Byzantine gating + bounded memory), not the "
+          "distance metric — a learned shareable metric doesn't move it. A supervised LINEAR "
+          "genesis projection (LDA) is already at the useful frontier under the frozen-genesis "
+          "constraint.")
 
 
 if __name__ == "__main__":
