@@ -134,6 +134,44 @@ def cmd_multimodal_demo(args) -> int:
     return run_multimodal_net.main()
 
 
+def cmd_multimodal_backbone(args) -> int:
+    """Attach an always-on multimodal honest backbone (N experts/modality, each
+    modality its own topic) to a real rendezvous (default: the public beacon) so
+    a later `swarmint multimodal-query` can fuse across modalities live."""
+    import asyncio
+    from .sim.multimodal_backbone import run_multimodal_backbone
+    print(f"swarmint: starting a multimodal backbone ({args.n_modalities} modalities x "
+          f"{args.per_modality} experts) against {args.beacon}.")
+    return asyncio.run(run_multimodal_backbone(
+        beacon_host=args.beacon, beacon_id_hex=args.beacon_id,
+        n_modalities=args.n_modalities, per_modality=args.per_modality,
+        base_port=args.base_port, dht_base_port=args.dht_base_port,
+        beacon_gossip_port=args.gossip_port, beacon_dht_port=args.dht_port,
+        advertise=args.bind, public_host=args.public_host, duration_s=args.duration))
+
+
+def cmd_multimodal_query(args) -> int:
+    """One-shot: join a real rendezvous, construct each modality expert's
+    deterministic address, and fuse per-modality answers — the live measurement
+    of a standing `swarmint multimodal-backbone` swarm."""
+    import asyncio
+    from .sim.multimodal_query import run_multimodal_query
+    res = asyncio.run(run_multimodal_query(
+        beacon_host=args.beacon, beacon_id_hex=args.beacon_id,
+        n_modalities=args.n_modalities, per_modality=args.per_modality, settle_s=args.settle,
+        beacon_gossip_port=args.gossip_port, beacon_dht_port=args.dht_port,
+        backbone_public_host=args.backbone_public_host, backbone_base_port=args.backbone_base_port))
+    print("\n== live multimodal fusion (query against the deployed backbone) ==")
+    for m, a in res["solo"].items():
+        print(f"  modality {m} distributed solo : {a:.3f}")
+    print(f"  LATE FUSION (live, real net)      : {res['fused']:.3f}  "
+         f"(best single {res['best_solo']:.3f}, n={res['n']})")
+    ok = res["fused"] > res["best_solo"]
+    print(f"\n{'PASS' if ok else 'FAIL'}: live fusion {'beat' if ok else 'did NOT beat'} "
+         f"the best single modality.")
+    return 0 if ok else 1
+
+
 def cmd_status(args) -> int:
     import urllib.request
     url = f"https://{args.beacon}/"
@@ -206,6 +244,35 @@ def build_parser() -> argparse.ArgumentParser:
     mm = sub.add_parser("multimodal-demo",
                         help="multimodal late fusion over the real UDP/DHT stack (no encoder)")
     mm.set_defaults(func=cmd_multimodal_demo)
+
+    mb = sub.add_parser("multimodal-backbone",
+                        help="attach an always-on multimodal honest backbone to a rendezvous")
+    mb.add_argument("--beacon", default=BEACON_HOST)
+    mb.add_argument("--beacon-id", default=BEACON_NODE_ID)
+    mb.add_argument("--n-modalities", type=int, default=3)
+    mb.add_argument("--per-modality", type=int, default=5)
+    mb.add_argument("--base-port", type=int, default=9101, help="first gossip port (n consecutive)")
+    mb.add_argument("--dht-base-port", type=int, default=9201, help="first DHT port (n consecutive)")
+    mb.add_argument("--gossip-port", type=int, default=BEACON_GOSSIP_PORT, help="beacon gossip port")
+    mb.add_argument("--dht-port", type=int, default=BEACON_DHT_PORT, help="beacon DHT port")
+    mb.add_argument("--bind", default="0.0.0.0")
+    mb.add_argument("--public-host", default=None, help="public IP to advertise (1:1-NAT cloud)")
+    mb.add_argument("--duration", type=int, default=0, help="seconds to run (0 = forever)")
+    mb.set_defaults(func=cmd_multimodal_backbone)
+
+    mq = sub.add_parser("multimodal-query",
+                        help="join + fuse across modalities against a live multimodal-backbone")
+    mq.add_argument("--beacon", default=BEACON_HOST)
+    mq.add_argument("--beacon-id", default=BEACON_NODE_ID)
+    mq.add_argument("--n-modalities", type=int, default=3)
+    mq.add_argument("--per-modality", type=int, default=5, help="experts/modality (must match the backbone)")
+    mq.add_argument("--gossip-port", type=int, default=BEACON_GOSSIP_PORT, help="beacon gossip port")
+    mq.add_argument("--dht-port", type=int, default=BEACON_DHT_PORT, help="beacon DHT port")
+    mq.add_argument("--settle", type=float, default=5.0, help="seconds to let replies/PEX settle")
+    mq.add_argument("--backbone-public-host", default=None,
+                    help="backbone's advertised host (default: same as --beacon)")
+    mq.add_argument("--backbone-base-port", type=int, default=9401)
+    mq.set_defaults(func=cmd_multimodal_query)
 
     st = sub.add_parser("status", help="print the live beacon status")
     st.add_argument("--beacon", default=BEACON_HOST)

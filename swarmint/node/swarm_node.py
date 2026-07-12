@@ -98,6 +98,11 @@ class SwarmNode:
         out-vote the honest supply)."""
         votes: dict[int, set] = {p.label: {sender}}
         for q, q_sender in self.quarantine:
+            # A quarantined prototype from an unrelated topic/task (wrong raw
+            # dimensionality) can never be "the same claim" as p — skip it
+            # rather than crash the distance computation.
+            if q.vector.shape != p.vector.shape:
+                continue
             if np.linalg.norm(q.vector - p.vector) < self.corroboration_radius:
                 votes.setdefault(q.label, set()).add(q_sender)
         self.quarantine.append((p, sender))

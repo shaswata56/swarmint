@@ -51,15 +51,23 @@ class PrototypeModel:
     # ---- inference ----
 
     def predict(self, x: np.ndarray) -> int | None:
-        if not self.protos:
+        if not self.protos or not self._dim_matches(x):
             return None
         mat = np.stack([p.vector for p in self.protos])
         d = np.linalg.norm(mat - x, axis=1)
         return self.protos[int(np.argmin(d))].label
 
+    def _dim_matches(self, x: np.ndarray) -> bool:
+        """A query vector from an unrelated topic/task (wrong raw dimensionality,
+        e.g. a cross-modal or wrong-task inference request reaching this node)
+        must be REJECTED, not crash the distance computation — never trust wire
+        data blindly. Same-dim inputs (the only case any existing test/sim ever
+        produces) are unaffected."""
+        return np.asarray(x).shape == self.protos[0].vector.shape
+
     def confidence(self, x: np.ndarray) -> float:
         """Margin-style confidence: gap between nearest other-class and nearest same-class."""
-        if len(self.protos) < 2:
+        if len(self.protos) < 2 or not self._dim_matches(x):
             return 0.0
         mat = np.stack([p.vector for p in self.protos])
         d = np.linalg.norm(mat - x, axis=1)
@@ -152,6 +160,15 @@ class PrototypeModel:
         seen = {p.key() for p in m.protos}
         for p in incoming:
             if p.key() in seen:
+                continue
+            if m.protos and p.vector.shape != m.protos[0].vector.shape:
+                # A prototype from an unrelated topic/task (wrong raw
+                # dimensionality) reached this node — reject it like any other
+                # incompatible update rather than crash the distance math.
+                # Never trust wire data blindly; gossip is topic-scoped at the
+                # network layer, but this is defense-in-depth against a
+                # misconfiguration (e.g. a topic-numbering collision).
+                m.conflicts += 1
                 continue
             if m.protos:
                 mat = np.stack([q.vector for q in m.protos])
