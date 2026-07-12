@@ -53,7 +53,7 @@ from nacl.signing import SigningKey
 
 from ..network.identity import Identity
 from ..node.net_node import NetNode
-from .data import global_test_set, make_world, sample
+from .live_task import build_task
 
 
 def _env(name, default=None):
@@ -100,9 +100,12 @@ async def main() -> int:
     rng = random.Random(1000 + seed)
     np_rng = np.random.default_rng(7 * seed + 1)
 
-    # Shared world: identical centers everywhere (same seed) — the synthetic
-    # analogue of a shared genesis. Each node streams only its own classes.
-    centers = make_world(n_classes=n_classes, dim=dim, seed=world_seed)
+    # The learning task. `synthetic` (default) keeps the original behaviour exactly;
+    # `digits` runs the swarm on real bundled sklearn digits with a shared LDA genesis
+    # embedding + data-derived radii (see sim/live_task.py).
+    task_name = _env("SWARM_TASK", "synthetic")
+    task = build_task(task_name, n_classes=n_classes, dim=dim, world_seed=world_seed)
+
     classes_env = _env("SWARM_CLASSES")
     if classes_env:
         my_classes = [int(c) for c in classes_env.split(",") if c != ""]
@@ -111,11 +114,11 @@ async def main() -> int:
 
     net = NetNode(identity=identity, topic=1, rng=rng, n_classes=n_classes,
                   gossip_interval=gossip_interval, gossip_sample_size=12,
-                  enable_relay=enable_relay)
+                  enable_relay=enable_relay, embedding=task.embedding,
+                  radii=(task.radii or None))
 
     def feed():
-        xs, ys = sample(centers, my_classes, 1, np_rng)
-        return (xs[0], int(ys[0]))
+        return task.feed(my_classes, np_rng)
     net.data_feed = feed
 
     _log("identity", role=role, seed=seed, node_id=identity.node_id.hex(),
@@ -199,7 +202,7 @@ async def main() -> int:
                 _log("relay_fallback", peer=peer.hex(), via=rendezvous_id.hex())
 
     # --- run loop: gossip proceeds via NodeRunner; we just report ---
-    test_x, test_y = global_test_set(centers, n_per_class=20)
+    test_x, test_y = task.test_x, task.test_y
     start = time.time()
     last = 0.0
     while duration_s == 0 or (time.time() - start) < duration_s:

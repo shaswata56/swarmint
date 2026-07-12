@@ -46,6 +46,9 @@ dev = [
     "psutil>=7", "scikit-learn>=1.5",
 ]
 
+[project.scripts]
+swarmint = "swarmint.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/shaswata56/swarmint"
 Repository = "https://github.com/shaswata56/swarmint"

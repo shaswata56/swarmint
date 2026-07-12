@@ -50,6 +50,9 @@ class NetNode:
     embedding: object = None      # shared frozen genesis embedding (E1-3). Every node MUST
                                   # use the identical one — provision it here, or a joiner
                                   # fetches it from the rendezvous via fetch_embedding().
+    radii: dict = None            # SwarmNode distance-radii kwargs (absorb_near/absorb_full/
+                                  # conflict_radius/corroboration_radius/abstain_margin/
+                                  # override_trust). None -> synthetic defaults (unchanged).
     data_feed: object = None  # () -> (x, y) | None
 
     bus: UdpBus = field(default=None, init=False)
@@ -88,7 +91,8 @@ class NetNode:
 
         self.node = SwarmNode(node_id=self.identity.node_id, topic=self.topic, bus=self.bus,
                               rng=self.rng, malicious=self.malicious, n_classes=self.n_classes,
-                              gossip_sample_size=self.gossip_sample_size)
+                              gossip_sample_size=self.gossip_sample_size,
+                              **(self.radii or {}))
         self.inference = wire_up(self.node, self.bus)  # installs the base protos+RPC dispatcher
 
         if self.enable_chain:

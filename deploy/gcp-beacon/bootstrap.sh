@@ -25,7 +25,8 @@ sudo rm -rf "$DEST"
 sudo git clone --depth 1 "$REPO" "$DEST"
 sudo python3 -m venv "$DEST/.venv"
 sudo "$DEST/.venv/bin/pip" install -q --upgrade pip
-sudo "$DEST/.venv/bin/pip" install -q -e "$DEST[net]"
+sudo "$DEST/.venv/bin/pip" install -q -e "$DEST[net,learn]"
+# [learn] adds scikit-learn — needed for the real-digits task (SWARM_TASK=digits).
 
 echo ">> writing env + systemd unit ..."
 sudo tee /etc/swarmint-beacon.env >/dev/null <<EOF
@@ -39,6 +40,7 @@ SWARM_HTTP_PORT=8080
 SWARM_HTTP_BIND=127.0.0.1
 SWARM_ENABLE_RELAY=1
 SWARM_DURATION_S=0
+SWARM_TASK=${SWARM_TASK:-digits}
 EOF
 # SWARM_PUBLIC_HOST: bind 0.0.0.0 but ADVERTISE the public IP (1:1 cloud NAT).
 # Status page binds 127.0.0.1:8080 — Caddy (below) fronts it with HTTPS on 443.

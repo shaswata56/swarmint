@@ -44,20 +44,51 @@ settings where data can't be centralized but many parties want a shared model.
 ## Install
 
 ```bash
-pip install -e .            # core (numpy only) — runs the in-process simulator
-pip install -e ".[dev]"     # + real P2P networking, real-data validation, cluster harness
+pip install -e ".[net,learn]"   # P2P networking + scikit-learn (needed to join the live swarm)
+pip install -e ".[dev]"         # everything (adds the cluster harness)
+pip install -e .                # core only (numpy) — runs the in-process simulator
 ```
 
-## Quickstart
+## Join the live swarm
+
+There is a **live, public swarm** running right now. One command connects you to
+it over the real internet (NAT hole-punching + relay fallback are automatic), and
+your node's accuracy climbs as it corroborates knowledge from the swarm:
 
 ```bash
+swarmint join            # join beacon.swarmint.org and learn real digits; Ctrl-C to leave
+```
+
+Your node learns to classify **real handwritten digits** (sklearn digits, bundled —
+no download) it mostly never saw locally: each `EVENT metrics` line shows its
+held-out `acc=` rising toward the ceiling as the honest quorum corroborates the
+missing classes. Nothing but signed prototypes crosses the wire — no raw data, no
+gradients, no central model. Live status: **https://beacon.swarmint.org**
+
+> The public beacon runs an always-on honest **backbone** (`swarmint backbone`)
+> so a joiner always has the ≥3-sender quorum the Byzantine defense requires;
+> without a quorum a lone node correctly stays at its solo ceiling.
+
+## Quickstart (offline)
+
+```bash
+swarmint sim                            # 100-node learning sim (synthetic, exact 0.959)
+swarmint multimodal-demo                # multimodal late fusion over the REAL UDP/DHT stack
 python benchmark.py                     # reproduce the headline claims (~40s, one table)
 python examples/quickstart.py           # smallest end-to-end: gossip beats solo
-python -m swarmint.sim.run_sim          # 100-node learning sim (synthetic, exact 0.959)
 python -m swarmint.sim.run_digits       # real data (sklearn digits): swarm vs solo
 python -m swarmint.sim.run_multiproc    # real UDP + DHT across OS processes
 python run_tests.py                     # the test suite (plain scripts, no pytest needed)
 ```
+
+## Host your own swarm
+
+```bash
+swarmint beacon --public-host <IP> --http-port 8080   # a rendezvous/relay
+swarmint backbone --beacon <IP> --public-host <IP>    # an always-on honest quorum
+```
+See [`deploy/gcp-beacon/`](deploy/gcp-beacon/) for a one-command free-tier GCP
+deployment (systemd + HTTPS status page).
 
 `python benchmark.py` is the fastest way to verify the project does what it
 claims: it runs the federation, Byzantine-suppression, distributed-inference,
