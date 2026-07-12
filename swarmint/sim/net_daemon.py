@@ -152,10 +152,14 @@ async def main() -> int:
         # peer. Kademlia's UDP bootstrap needs a numeric address, so we resolve
         # the name locally at join time (picking up the current IP each start).
         r_ip = socket.gethostbyname(r_host)
+        r_gossip = int(_env("SWARM_RENDEZVOUS_GOSSIP_PORT", "9001"))
         _log("joining", rendezvous=f"{r_host}:{r_dht}", resolved=r_ip,
              rendezvous_id=rendezvous_id.hex())
+        # Seed the rendezvous gossip addr directly (r_ip:r_gossip) so connectivity
+        # survives a flaky DHT lookup on lossy/high-latency links (cellular).
         await net.start(advertise, gossip_port, dht_port,
-                        [(r_ip, r_dht)], rendezvous_id=rendezvous_id)
+                        [(r_ip, r_dht)], rendezvous_id=rendezvous_id,
+                        rendezvous_addr=(r_ip, r_gossip))
         reachable = rendezvous_id in net.bus.peer_addrs
         _log("joined", rendezvous_resolved=reachable,
              rendezvous_addr=str(net.bus.peer_addrs.get(rendezvous_id)))

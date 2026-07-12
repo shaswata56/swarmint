@@ -64,7 +64,7 @@ class NetNode:
 
     async def start(self, host: str, gossip_port: int, dht_port: int,
                     bootstrap_dht_addrs: list, rendezvous_id: bytes = None,
-                    advertise_host: str = None) -> None:
+                    advertise_host: str = None, rendezvous_addr: tuple = None) -> None:
         # `host` is the BIND interface (often 0.0.0.0). `advertise_host` is the
         # address peers should DIAL — they differ behind 1:1 cloud NAT (GCP/AWS),
         # where the public IP is not assignable on the VM's own NIC, so we must
@@ -157,9 +157,20 @@ class NetNode:
                 if addr is not None:
                     break
                 await asyncio.sleep(0.2)
+            # Fallback: if the DHT lookup didn't resolve the rendezvous, seed its
+            # gossip address DIRECTLY from the caller-supplied `rendezvous_addr`.
+            # We already bootstrapped straight to the rendezvous — reaching it must
+            # not hinge on a multi-round-trip DHT get() completing, which is exactly
+            # what fails on higher-latency/lossier links (e.g. cellular) where a
+            # single UDP round-trip works fine. Without this, a flaky lookup left
+            # the node with zero peers and it never sent a byte.
+            if addr is None and rendezvous_addr is not None:
+                addr = rendezvous_addr
+                self.discovery.peer_addrs.setdefault(rendezvous_id, addr)
             if addr is not None:
                 self.bus.peer_addrs[rendezvous_id] = addr
-                self.node.peers.append(rendezvous_id)
+                if rendezvous_id not in self.node.peers:
+                    self.node.peers.append(rendezvous_id)
 
         def feed_and_pex():
             self._pex_tick += 1
