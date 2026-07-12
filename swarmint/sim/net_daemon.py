@@ -44,6 +44,7 @@ Run:  SWARM_ROLE=rendezvous SWARM_SEED=0 python -m swarmint.sim.net_daemon
 import asyncio
 import os
 import random
+import socket
 import sys
 import time
 
@@ -89,6 +90,11 @@ async def main() -> int:
     duration_s = float(_env("SWARM_DURATION_S", "90"))
     report_every = float(_env("SWARM_REPORT_EVERY_S", "3"))
     enable_relay = _env("SWARM_ENABLE_RELAY", "0") == "1"
+    # Public (dial-able) address to ADVERTISE, distinct from the bind host, for
+    # 1:1-NAT cloud hosts (GCP/AWS) where the public IP isn't on the VM's NIC.
+    public_host = _env("SWARM_PUBLIC_HOST") or None
+    http_port = int(_env("SWARM_HTTP_PORT", "0"))  # rendezvous status page; 0 = off
+    http_bind = _env("SWARM_HTTP_BIND", "0.0.0.0")  # bind 127.0.0.1 when a TLS proxy fronts it
 
     identity = _identity_from_seed(seed)
     rng = random.Random(1000 + seed)
@@ -123,10 +129,16 @@ async def main() -> int:
         loop.default_exception_handler(context)
     asyncio.get_running_loop().set_exception_handler(_quiet)
 
+    status_server = None
     if role == "rendezvous":
-        await net.start(advertise, gossip_port, dht_port, [])
+        await net.start(advertise, gossip_port, dht_port, [], advertise_host=public_host)
         _log("rendezvous_up", node_id=identity.node_id.hex(),
-             gossip=f"{advertise}:{net.bus.bound_port}", dht=f"{advertise}:{dht_port}")
+             gossip=f"{public_host or advertise}:{net.bus.bound_port}",
+             dht=f"{public_host or advertise}:{dht_port}")
+        if http_port:
+            from ..network import beacon_status
+            status_server = await beacon_status.serve(net, http_bind, http_port, time.time())
+            _log("status_http_up", bind=f"{http_bind}:{http_port}")
         rendezvous_id = None
         punch_peers = []
     else:
@@ -134,9 +146,16 @@ async def main() -> int:
         r_dht = int(_env("SWARM_RENDEZVOUS_DHT_PORT", "9002"))
         rendezvous_id = bytes.fromhex(_env("SWARM_RENDEZVOUS_ID", ""))
         punch_peers = [bytes.fromhex(p) for p in (_env("SWARM_PUNCH_PEERS", "") or "").split(",") if p]
-        _log("joining", rendezvous=f"{r_host}:{r_dht}", rendezvous_id=rendezvous_id.hex())
+        # Resolve the rendezvous by NAME, not a pinned IP: the DNS record
+        # (beacon.swarmint.org) is the durable, relocatable anchor — re-hosting
+        # the beacon is then a DNS change only, never a config/code edit in every
+        # peer. Kademlia's UDP bootstrap needs a numeric address, so we resolve
+        # the name locally at join time (picking up the current IP each start).
+        r_ip = socket.gethostbyname(r_host)
+        _log("joining", rendezvous=f"{r_host}:{r_dht}", resolved=r_ip,
+             rendezvous_id=rendezvous_id.hex())
         await net.start(advertise, gossip_port, dht_port,
-                        [(r_host, r_dht)], rendezvous_id=rendezvous_id)
+                        [(r_ip, r_dht)], rendezvous_id=rendezvous_id)
         reachable = rendezvous_id in net.bus.peer_addrs
         _log("joined", rendezvous_resolved=reachable,
              rendezvous_addr=str(net.bus.peer_addrs.get(rendezvous_id)))
@@ -194,6 +213,8 @@ async def main() -> int:
                  relay_tx=net.bus.relayed_tx, relay_fwd=net.bus.relayed_fwd,
                  relay_rx=net.bus.relayed_rx)
 
+    if status_server is not None:
+        status_server.close()
     await net.stop()
     _log("stopped", role=role, seed=seed)
     return 0

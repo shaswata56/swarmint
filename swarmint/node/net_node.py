@@ -10,6 +10,7 @@ messages piggybacked on the gossip cadence.
 
 import asyncio
 import random
+import time
 from dataclasses import dataclass, field
 
 from ..core.update_chain import UpdateChain
@@ -62,7 +63,14 @@ class NetNode:
     _last_ckpt_counter: int = field(default=-1, init=False)
 
     async def start(self, host: str, gossip_port: int, dht_port: int,
-                    bootstrap_dht_addrs: list, rendezvous_id: bytes = None) -> None:
+                    bootstrap_dht_addrs: list, rendezvous_id: bytes = None,
+                    advertise_host: str = None) -> None:
+        # `host` is the BIND interface (often 0.0.0.0). `advertise_host` is the
+        # address peers should DIAL — they differ behind 1:1 cloud NAT (GCP/AWS),
+        # where the public IP is not assignable on the VM's own NIC, so we must
+        # bind 0.0.0.0 yet advertise the public IP. Defaults to `host` (unchanged
+        # for loopback/container callers where bind host == reachable host).
+        advertise_host = advertise_host or host
         self.bus = UdpBus(identity=self.identity, loss_rate=self.loss_rate,
                           enable_relay=self.enable_relay)
         await self.bus.start(host, gossip_port)
@@ -75,7 +83,8 @@ class NetNode:
 
         self.discovery = Discovery(identity=self.identity)
         self.discovery.topics = set(self.topics) if self.topics else {self.topic}
-        await self.discovery.start(host, dht_port, bootstrap_dht_addrs, host, self.bus.bound_port)
+        await self.discovery.start(host, dht_port, bootstrap_dht_addrs,
+                                   advertise_host, self.bus.bound_port)
 
         self.node = SwarmNode(node_id=self.identity.node_id, topic=self.topic, bus=self.bus,
                               rng=self.rng, malicious=self.malicious, n_classes=self.n_classes,
@@ -113,6 +122,12 @@ class NetNode:
                 observed_addr = self.bus.peer_addrs.get(msg.sender)
                 if observed_addr is not None:
                     self.discovery.peer_addrs.setdefault(msg.sender, observed_addr)
+                    # Stamp freshness on every heard-from packet. Without this, a
+                    # rendezvous-observed peer (which we never lookup()/PEX-ingest)
+                    # has no peer_seen_at, so it can never be aged out by
+                    # _expire_stale AND always reads as stale to observers. Now
+                    # last-heard reflects reality for liveness + staleness both.
+                    self.discovery.peer_seen_at[msg.sender] = time.time()
             if msg.kind == "pex":
                 self._on_pex(msg)
             elif msg.kind == "chain_req":
