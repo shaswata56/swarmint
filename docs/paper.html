@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paper — swarmint: Intelligence with No Center to Fail</title>
+<meta name="description" content="swarmint technical paper: decentralized, Byzantine-robust swarm learning by gossiping prototypes, not gradients. Design, invariants, results across synthetic/image/tabular/text, real 16-process networking, real-hardware NAT hole-punch, a live joinable swarm, and honest negative results.">
+<link rel="canonical" href="https://swarmint.org/paper.html">
+<meta name="theme-color" content="#0b1020">
+<meta name="keywords" content="swarmint paper, decentralized learning, federated learning without coordinator, gossip protocol, byzantine fault tolerance, prototype learning, order-invariant merging, NAT hole punching, peer-to-peer machine learning, edge AI">
+
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="icon" href="/favicon-16.png" sizes="16x16" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="swarmint">
+<meta property="og:title" content="swarmint: Intelligence with No Center to Fail">
+<meta property="og:description" content="The technical paper for swarmint — decentralized, Byzantine-robust swarm learning by gossiping prototypes, not gradients. Validated in simulation and as a live joinable network over the open internet.">
+<meta property="og:url" content="https://swarmint.org/paper.html">
+<meta property="og:image" content="https://swarmint.org/assets/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="swarmint: Intelligence with No Center to Fail">
+<meta name="twitter:description" content="Decentralized, Byzantine-robust swarm learning by gossiping prototypes, not gradients — design, results, and honest limits.">
+<meta name="twitter:image" content="https://swarmint.org/assets/og-image.png">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "ScholarlyArticle",
+  "headline": "swarmint: Intelligence with No Center to Fail",
+  "description": "Decentralized, Byzantine-robust swarm learning by gossiping prototypes, not gradients. Design, invariants, results across synthetic/image/tabular/text, real 16-process networking, real-hardware NAT hole-punch, a live joinable swarm, and honest negative results.",
+  "author": { "@type": "Person", "name": "Shaswata Das" },
+  "url": "https://swarmint.org/paper.html",
+  "about": "Decentralized federated machine learning without a central server",
+  "programmingLanguage": "Python",
+  "license": "https://www.gnu.org/licenses/agpl-3.0.html"
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://swarmint.org/" },
+    { "@type": "ListItem", "position": 2, "name": "Paper", "item": "https://swarmint.org/paper.html" }
+  ]
+}
+</script>
+
+<link rel="stylesheet" href="styles.css">
+<script>
+  try {
+    var _t = localStorage.getItem('swarmint-theme');
+    if (_t && _t !== 'auto') document.documentElement.setAttribute('data-theme', _t);
+  } catch (e) {}
+</script>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="/"><span class="dot" aria-hidden="true"></span>swarmint</a>
+    <a class="navlink hide-sm" href="/#why">Why</a>
+    <a class="navlink hide-sm" href="/#results">Results</a>
+    <a class="navlink" href="docs.html">Docs</a>
+    <a class="navlink" href="paper.html">Paper</a>
+    <a class="navlink" href="https://github.com/shaswata56/swarmint" rel="noopener">GitHub</a>
+    <button id="theme-toggle" type="button" aria-label="Switch color theme" title="Switch color theme">◐ Auto</button>
+  </div>
+</nav>
+
+<main class="wrap" style="padding-top:40px;padding-bottom:60px">
+  <p style="color:var(--muted);font-size:14px;margin:0 0 6px">
+    <a href="/">Home</a> › Paper
+  </p>
+  <h1 style="font-size:clamp(28px,5vw,40px);margin:0 0 8px">swarmint: Intelligence with No Center to Fail</h1>
+  <p class="lead" style="max-width:820px">
+    Decentralized, Byzantine-robust swarm learning by gossiping <em>prototypes</em>, not gradients.
+    No central server, no gradient averaging, no raw data leaving the device — validated not only in
+    simulation but as a <b>live network anyone can join</b> over the open internet.
+  </p>
+  <p style="color:var(--muted);font-size:14px">
+    Shaswata Das ·
+    <a href="https://www.gnu.org/licenses/agpl-3.0.html" rel="noopener">AGPL-3.0-or-later</a> ·
+    <a href="https://github.com/shaswata56/swarmint" rel="noopener">source</a> ·
+    live swarm: <a href="https://beacon.swarmint.org" rel="noopener">beacon.swarmint.org</a>
+  </p>
+
+  <div class="doc-layout" style="margin-top:36px">
+    <aside class="doc-toc" aria-label="On this page">
+      <h4>On this page</h4>
+      <a href="#abstract">Abstract</a>
+      <a href="#problem">1. Problem</a>
+      <a href="#design">2. Design</a>
+      <a href="#results">3. Results</a>
+      <a href="#limits">4. Honest limits</a>
+      <a href="#reproduce">5. Reproduce</a>
+      <a href="#conclusion">6. Conclusion</a>
+    </aside>
+
+    <article class="doc">
+      <section id="abstract">
+        <h2>Abstract <a class="anchor" href="#abstract" aria-label="Link to Abstract">#</a></h2>
+        <p>Federated learning that averages neural-network weights is fragile — independently trained
+          networks do not average well — and it almost always depends on a central coordinator.
+          <b>swarmint</b> removes both. Each participant runs a tiny <b>prototype micro-model</b> (a
+          bounded set of labeled exemplars with nearest-neighbor prediction) and shares knowledge by
+          gossiping <em>prototypes</em> rather than gradients. Merging is <b>order-invariant</b> (set
+          union + prune), so there is no averaging step to go wrong and no rounds to coordinate. Peers
+          discover each other over a Kademlia DHT, exchange Ed25519-signed messages over UDP, and
+          traverse NATs by hole-punching with a relay fallback. A layered Byzantine defense —
+          merge-validation, multi-sender corroboration, and per-peer reputation — keeps the swarm
+          converging while ~5% of nodes actively poison it.</p>
+        <p>We validate on synthetic mixtures (100 nodes, exact 0.959 vs. 0.20 solo), three real
+          modalities, 16 real OS processes over real UDP/DHT, and — the headline evidence — on real
+          hardware over the open internet: direct NAT hole-punches across corporate NAT, home Wi-Fi,
+          Cloudflare WARP, and plain carrier CGNAT, plus a <b>live public swarm anyone can join in one
+          command</b> and watch their accuracy climb from the solo ceiling to the task ceiling. We
+          report negative results as first-class: adaptive radii and a learned shareable metric both
+          fail to move a structural accuracy ceiling that is the price of Byzantine robustness under
+          bounded memory.</p>
+        <div class="callout"><b>In one line:</b> order-invariant prototype merging removes the
+          averaging problem; gossip over a DHT removes the coordinator; layered trust removes the
+          honest-participant assumption.</div>
+      </section>
+
+      <section id="problem">
+        <h2>1. Problem <a class="anchor" href="#problem" aria-label="Link to Problem">#</a></h2>
+        <p>Three properties are usually in tension in collaborative learning: <b>(1)</b> no raw-data
+          sharing (edge/private data can't be centralized); <b>(2)</b> no central coordinator (a
+          single point of failure, trust bottleneck, and cost); <b>(3)</b> robustness to malicious
+          participants. Weight-averaging federated learning struggles with all three at once —
+          averaging the parameters of independently trained networks is unstable because loss
+          landscapes are non-convex and permutation-symmetric, so two good models can average to a bad
+          one; and the coordinator remains central. swarmint targets the intersection: <b>share
+          knowledge, not data; discover peers, not coordinate them; make poisoning fail by
+          construction.</b></p>
+      </section>
+
+      <section id="design">
+        <h2>2. Design <a class="anchor" href="#design" aria-label="Link to Design">#</a></h2>
+        <h3>Prototype micro-models</h3>
+        <p>A node's entire model is a bounded set of <b>prototypes</b> — labeled exemplars in a shared
+          feature space — with nearest-neighbor prediction. Learning is online: observe
+          <code>(x, y)</code>, absorb it into a nearby same-label prototype or add a new one, pruning
+          to a memory bound. No weights, no gradients.</p>
+        <h3>Order-invariant merging</h3>
+        <p>Two models merge by <b>set union + prune</b>. Because union is commutative and associative,
+          <b>merge order does not matter</b> — the failure mode that makes weight-averaging fragile
+          does not exist here. This is what lets gossip be asynchronous and coordinator-free.</p>
+        <h3>Gossip federation</h3>
+        <p>Each node sees only a <b>non-IID slice</b> of the classes, so no node can learn the full
+          task alone. Nodes periodically gossip a random sample of prototypes; knowledge diffuses and
+          every node approaches full-task accuracy while its raw data never leaves the device.</p>
+        <h3>Byzantine defense (layered)</h3>
+        <ul>
+          <li><b>Merge-validation</b> — a prototype contradicting local structure (a different label
+            too close to an established one) is rejected.</li>
+          <li><b>Corroboration</b> — a class a node can't verify itself is promoted only when
+            <b>≥3 distinct senders</b> corroborate it. Two senders is insufficient (a colluding pair
+            could manufacture agreement); three is the smallest quorum resisting a single colluding
+            pair.</li>
+          <li><b>Reputation</b> — each peer carries an EMA trust score; label-flip attackers lose
+            trust and are down-weighted or ignored.</li>
+        </ul>
+        <p>This holds while malicious supply stays below honest supply per class-region (~5%
+          globally). It is deliberately <b>not</b> a global consensus ledger — per-node
+          tamper-evidence only (a signed hash-chain of checkpoints), by design.</p>
+        <h3>Shared genesis embedding</h3>
+        <p>Prototypes are only comparable in the <b>same</b> feature space. A node that fits its own
+          projection drifts into an incomparable space and merging silently breaks. swarmint fits a
+          projection (Identity / random / PCA / <b>LDA</b>) <b>once</b> on a small public seed at
+          genesis, freezes it to a plain <code>(mean, W)</code> linear operator, and distributes it as
+          a protocol parameter — every node applies the identical frozen transform. On many-shot data
+          this lifts accuracy toward the centralized ceiling while keeping the decentralized,
+          poison-resistant properties.</p>
+        <h3>The P2P stack</h3>
+        <p>UDP transport with msgpack framing; <b>Ed25519</b>-signed messages
+          (<code>node_id = SHA1(pubkey)[:20]</code>) with replay protection; <b>Kademlia DHT</b>
+          rendezvous + peer-exchange for discovery; <b>NAT hole-punching</b> with a <b>relay
+          fallback</b> and multi-relay failover. Transport and representation are strictly separated
+          from the learning core.</p>
+        <h3>Design invariants</h3>
+        <ul>
+          <li>The learning node is <b>synchronous and representation-agnostic</b>; async, transport,
+            and relay live below it; feature-space logic lives in the embedding layer.</li>
+          <li>The learning core is <b>frozen and byte-stable</b>: the deterministic 100-node sim
+            reproduces <b>exactly 0.959</b>. New behavior ships behind opt-in flags, defaults
+            unchanged.</li>
+          <li><b>Shared-space invariant</b>: any embedding is identical across all nodes (fit once at
+            genesis, frozen).</li>
+          <li><b>No silent truncation</b> — anything capped is logged.</li>
+        </ul>
+      </section>
+
+      <section id="results">
+        <h2>3. Results <a class="anchor" href="#results" aria-label="Link to Results">#</a></h2>
+
+        <h3>3.1 Collective learning (synthetic)</h3>
+        <p>100 nodes, 10 classes, 2 classes/node, 5% label-flip malicious, lossy network:</p>
+        <div class="tablewrap">
+        <table>
+          <thead><tr><th>metric</th><th>solo</th><th>swarm</th></tr></thead>
+          <tbody><tr><td>held-out accuracy</td><td>0.20</td><td><b>0.959</b></td></tr></tbody>
+        </table>
+        </div>
+        <p>Malicious trust is suppressed below honest trust; the swarm converges and stays converged.
+          This exact figure is the project's regression anchor.</p>
+
+        <h3>3.2 Distributed inference (mixture-of-experts)</h3>
+        <p>A node answers queries about classes it never learned by consulting the swarm,
+          trust-weighting experts and letting them <b>abstain</b> off-manifold. With 30% confident
+          liars:</p>
+        <div class="tablewrap">
+        <table>
+          <thead><tr><th>strategy</th><th>accuracy</th></tr></thead>
+          <tbody>
+            <tr><td>local-only</td><td>0.20</td></tr>
+            <tr><td>naive vote</td><td>0.30</td></tr>
+            <tr><td>trust-weighted + abstain</td><td><b>0.79</b></td></tr>
+          </tbody>
+        </table>
+        </div>
+
+        <h3>3.3 Generality across modalities (real data)</h3>
+        <p>Shared LDA genesis embedding per dataset; solo → swarm, 5% malicious, with the
+          full-knowledge 1-NN ceiling for reference:</p>
+        <div class="tablewrap">
+        <table>
+          <thead><tr><th>modality</th><th>dataset</th><th>solo</th><th>swarm</th><th>1-NN ceiling</th><th>gap closed</th></tr></thead>
+          <tbody>
+            <tr><td>image</td><td>sklearn digits</td><td>0.20</td><td><b>0.882</b></td><td>0.951</td><td>91%</td></tr>
+            <tr><td>tabular</td><td>covtype</td><td>0.29</td><td><b>0.450</b></td><td>0.718</td><td>37%</td></tr>
+            <tr><td>text</td><td>20-newsgroups (TF-IDF)</td><td>0.33</td><td><b>0.389</b></td><td>0.552</td><td>27%</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p>The lift is a <b>gradient, not a uniform win</b>: strong on image, modest on tabular,
+          near-break on text — because a linear LDA genesis embedding can't separate sparse TF-IDF
+          (its own 1-NN ceiling is only 0.55). A rounds sweep (100 vs. 250) does not help, confirming
+          the ceiling is <b>structural</b>, not under-training. Byzantine gating held on every
+          modality. Separately, Olivetti faces (40-class, few-shot) reach <b>0.51</b> vs. 0.05 solo —
+          10× solo on a brutal dataset.</p>
+
+        <h3>3.4 Multimodal late fusion over the real network</h3>
+        <p>swarmint goes multimodal with <b>no encoder</b>: each modality is handled by raw prototype
+          experts in its own space (its own <b>topic</b>), and modalities are fused at the <em>decision</em>
+          level by the same trust/confidence-weighted mixture-of-experts. In process this beats the best
+          single modality (0.65 → 0.84); we now confirm it over the <b>real stack</b> — UDP + Kademlia DHT +
+          topic-scoped inference — with 30 expert nodes across 3 modalities (10/topic, ≥3-sender coverage
+          per class) and a query node fusing per-modality answers over real sockets, reproduced across
+          independent runs:</p>
+        <div class="tablewrap">
+        <table>
+          <thead><tr><th>run</th><th>best single modality</th><th>late fusion (real net)</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>0.617</td><td><b>0.700</b></td></tr>
+            <tr><td>2</td><td>0.558</td><td><b>0.642</b></td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p>Fusion beats the best single modality over real sockets on every run — independently-noisy
+          views denoise when fused, with no encoder and no shared feature space across modalities. (One
+          finding: topic routing needs an authoritative DHT advert lookup to populate a passively-learned
+          peer's topic; PEX only spreads topic <em>hints</em>. A thin-margin under-provisioned swarm can
+          occasionally show fusion not beating the best modality on a given real-timing run; 10
+          experts/modality with a larger held-out set removes that flakiness.)</p>
+
+        <h3>3.5 Real networking (16 processes)</h3>
+        <div class="tablewrap">
+        <table>
+          <thead><tr><th>metric</th><th>value</th></tr></thead>
+          <tbody>
+            <tr><td>honest accuracy</td><td>0.95</td></tr>
+            <tr><td>malicious vs. honest trust</td><td>0.67 &lt; 0.99</td></tr>
+            <tr><td>bandwidth (production-normalized)</td><td>~1354 B/s/node</td></tr>
+            <tr><td>chaos: 30% killed + restart, 20% loss</td><td>survivors converge; node rejoins</td></tr>
+          </tbody>
+        </table>
+        </div>
+
+        <h3>3.6 Real-hardware NAT traversal (the open internet)</h3>
+        <p>A public <b>beacon</b> (hole-punch rendezvous + relay) runs on a free-tier GCP e2-micro at
+          <a href="https://beacon.swarmint.org" rel="noopener">beacon.swarmint.org</a>. Over genuine
+          router NATs, direct hole-punches (relay unused, <code>relay_fwd=0</code>) succeeded on three
+          independent network types:</p>
+        <div class="tablewrap">
+        <table>
+          <thead><tr><th>peer A</th><th>peer B</th><th>result</th></tr></thead>
+          <tbody>
+            <tr><td>corporate-NAT PC</td><td>home-Wi-Fi Android (port-remapped)</td><td>direct punch, ok</td></tr>
+            <tr><td>corporate-NAT PC</td><td>Cloudflare-WARP cellular</td><td>direct punch, ok</td></tr>
+            <tr><td>corporate-NAT PC</td><td><b>plain carrier CGNAT</b> (port-remapped)</td><td>direct punch, ok</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p>No proxy is required on any path — something an emulated netfilter NAT (netns/Docker) never
+          achieved even for raw UDP. We also corrected an earlier wrong "carrier blocks UDP" claim with
+          an actual raw-UDP echo test: the real cause was a fragile one-shot DHT bootstrap on lossy
+          cellular, fixed by seeding the rendezvous gossip address directly.</p>
+
+        <h3>3.7 A live, joinable swarm — learning real digits</h3>
+        <p>The concept becomes a living network that learns a <b>real</b> task. The public beacon
+          hosts an always-on honest <b>backbone</b> (8 nodes covering all classes with ≥3-sender
+          corroboration) that learns <b>sklearn handwritten digits</b> (bundled on every machine — no
+          data transfer) under a shared LDA genesis embedding. Anyone runs one command and their node
+          learns to classify digits it mostly never saw locally:</p>
+        <div class="codeblock">
+<pre>pip install "swarmint[net,learn]"
+swarmint join            <span class="c"># → beacon.swarmint.org, learns real digits</span></pre>
+        </div>
+        <p>Measured from a corporate-NAT PC (<code>nat_detected=True</code>) joining <b>over the open
+          internet</b> (direct P2P, <code>relay_fwd=0</code>), held-out accuracy on the <b>real digit
+          test set</b> climbed as the honest quorum corroborated each previously-unseen class,
+          reaching the same ~0.92 ceiling the offline digits experiments hit:</p>
+        <div class="tablewrap">
+        <table>
+          <thead><tr><th>t (s)</th><th>20</th><th>30</th><th>40</th><th>50</th><th>60</th><th>80</th><th>90</th><th>120</th></tr></thead>
+          <tbody><tr><td>accuracy</td><td>0.15</td><td>0.33</td><td>0.42</td><td>0.66</td><td>0.75</td><td>0.85</td><td>0.89</td><td><b>0.92</b></td></tr></tbody>
+        </table>
+        </div>
+        <p>Nothing but signed prototypes crosses the wire — no raw data, no gradients, no central
+          model. A lone joiner reaching an <em>empty</em> network correctly stays at its solo ceiling:
+          the ≥3-sender rule refuses to trust an unbacked source. The backbone exists precisely to
+          supply that honest quorum.</p>
+      </section>
+
+      <section id="limits">
+        <h2>4. Honest limits <a class="anchor" href="#limits" aria-label="Link to Honest limits">#</a></h2>
+        <p>Negative results are reported as first-class.</p>
+        <ul>
+          <li><b>Structural accuracy ceiling.</b> On digits the swarm reaches ~0.88 against a 1-NN
+            ceiling of ~0.95. The gap is <b>structural</b> — the cost of Byzantine gating + bounded
+            memory on overlapping classes. Two attempts to close it failed and are documented:
+            <b>adaptive per-class radii</b> made accuracy worse and weakened the Byzantine margin
+            (reverted); and <b>a learned shareable metric</b> — since a Mahalanobis metric is
+            Euclidean distance after a linear map — dropped into the same frozen-genesis slot. NCA,
+            which optimizes exactly the 1-NN objective the model uses, reached <b>0.870</b> even when
+            initialized at LDA and optimized for 200 iterations — <em>below</em> LDA's <b>0.882</b>;
+            whitened Mahalanobis collapsed to 0.482. The metric is not the lever.</li>
+          <li><b>Few-shot genesis.</b> The shared LDA embedding needs ~40 samples/class of public
+            seed. It fits many-shot data, not few-shot (faces, 10/class).</li>
+          <li><b>Text near-break.</b> Linear genesis embeddings can't separate sparse TF-IDF; a
+            nonlinear-but-shareable genesis is open work.</li>
+          <li><b>Scope.</b> No global consensus ledger (per-node tamper-evidence only, by design);
+            cross-modal <em>semantic</em> alignment is out of scope (late fusion only); Sybil
+            resistance beyond ~5% needs more honest redundancy per class (more nodes), not a code
+            change.</li>
+        </ul>
+      </section>
+
+      <section id="reproduce">
+        <h2>5. Reproduce <a class="anchor" href="#reproduce" aria-label="Link to Reproduce">#</a></h2>
+        <div class="codeblock">
+<pre>git clone https://github.com/shaswata56/swarmint &amp;&amp; cd swarmint
+pip install -e ".[dev]"
+
+python benchmark.py                    <span class="c"># headline claims as PASS/FAIL (exit 0 iff all pass)</span>
+swarmint sim                           <span class="c"># 100-node synthetic sim, exact 0.959</span>
+python -m swarmint.sim.run_generality  <span class="c"># image/tabular/text sweep (SWARMINT_SLOW_TESTS=1)</span>
+python -m swarmint.sim.run_multiproc   <span class="c"># 16 real processes over UDP + DHT</span>
+python run_tests.py                    <span class="c"># full test suite (no pytest needed)</span>
+
+swarmint join                          <span class="c"># join the LIVE public swarm</span></pre>
+        </div>
+        <p>The beacon + backbone deploy to a free-tier GCP e2-micro in one command; see
+          <a href="https://github.com/shaswata56/swarmint/tree/main/deploy/gcp-beacon" rel="noopener"><code>deploy/gcp-beacon/</code></a>.
+          CI runs the test matrix (Python 3.10–3.13) and the benchmark on every push.</p>
+      </section>
+
+      <section id="conclusion">
+        <h2>6. Conclusion <a class="anchor" href="#conclusion" aria-label="Link to Conclusion">#</a></h2>
+        <p>Order-invariant prototype merging removes weight-averaging fragility; gossip over a DHT
+          removes the coordinator; a layered trust/corroboration defense removes the honest-participant
+          assumption. The result is a learning system with <b>no center to fail</b> — validated not
+          only in simulation but as a live network that tolerates real NATs, real packet loss, and
+          real adversaries, and that anyone can join today. Its accuracy ceiling is the honest price of
+          that robustness, and we report the attempts to lower it that did not work as plainly as the
+          ones that did.</p>
+        <div class="callout"><a class="btn primary" href="https://github.com/shaswata56/swarmint" rel="noopener">Read the code on GitHub</a>
+          &nbsp; <a class="btn ghost" href="https://beacon.swarmint.org" rel="noopener">See the live swarm →</a></div>
+      </section>
+    </article>
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <p><span class="strong">swarmint</span> — built in the open, licensed
+      <a href="https://www.gnu.org/licenses/agpl-3.0.html" rel="noopener">AGPL-3.0-or-later</a>.</p>
+    <p><a href="/">Home</a> &nbsp;·&nbsp;
+       <a href="docs.html">Docs</a> &nbsp;·&nbsp;
+       <a href="https://github.com/shaswata56/swarmint" rel="noopener">GitHub</a> &nbsp;·&nbsp;
+       <a href="https://github.com/shaswata56/swarmint/blob/main/CONTRIBUTING.md" rel="noopener">Contribute</a></p>
+  </div>
+</footer>
+
+<script src="site.js" defer></script>
+</body>
+</html>
