@@ -127,9 +127,17 @@ beacon holds it; a restarted genesis re-learns it from the others), and a newcom
 can bootstrap off *any* beacon — the genesis is just the default door.
 
 ```bash
+swarmint beacon                  # host a beacon in ONE command: random unique id, auto friendly
+                                 # name (beacon-<adj>-<noun>-<hex>), joins the federation
+swarmint beacon --domain my.example.com   # ...advertise your own domain (you front the TLS)
 swarmint beacons                 # list the whole mesh from any beacon (they all hold it)
-swarmint beacons --url http://localhost:8080/federation.json   # ...e.g. your own beacon
 ```
+
+Each beacon's status page shows the **whole swarm's peers**, not just its own —
+every node is aggregated across all beacons over the same **signed P2P census
+gossip** (no central server, no server-to-server HTTP), with a "seen via" column
+naming which beacons vouch for each peer. Click any beacon's id in the directory
+to open that beacon's own status page.
 
 You confirm your setup works by seeing your beacon appear **reachable** in the
 directory — the same view from any beacon. Beacon adverts are signed with each

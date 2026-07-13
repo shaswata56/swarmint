@@ -200,6 +200,27 @@ def unpack_beacon_gossip(data: bytes) -> dict:
     return {"blobs": list(body["blobs"])}
 
 
+def pack_beacon_census(payload: dict) -> bytes:
+    """A compact, signed census of the peers ONE beacon currently knows — gossiped
+    beacon-to-beacon so every beacon can render the WHOLE-swarm peer list without
+    any server-to-server HTTP (stays pure P2P). Each entry is minimal: node_id +
+    advertised "host:port" + topic hints. Observer-relative facts (NAT/hole-punch)
+    are deliberately NOT included — they are only meaningful to the beacon that
+    observed them, so they'd be noise in another beacon's aggregate. Chunked by the
+    sender to fit the datagram budget (a dict payload so UdpBus's list-chunker
+    leaves it alone)."""
+    entries = [{"id": e["id"], "ep": e["ep"], "t": sorted(int(t) for t in e.get("topics", []))}
+               for e in payload["entries"]]
+    return _pack({"v": WIRE_VERSION, "k": "beacon_census", "e": entries})
+
+
+def unpack_beacon_census(data: bytes) -> dict:
+    body = _unpack(data)
+    assert body["k"] == "beacon_census"
+    return {"entries": [{"id": d["id"], "ep": d["ep"], "topics": list(d.get("t", []))}
+                        for d in body["e"]]}
+
+
 def pack_beacon_ping(payload: dict) -> bytes:
     """Reachability probe to a beacon's ADVERTISED address — the live proof its
     public host+port actually accepts inbound (NAT/firewall correct). op = ping|pong."""

@@ -115,6 +115,11 @@ def cmd_beacon(args) -> int:
         SWARM_GENESIS_ID=(None if args.no_federate else args.genesis_id),
         SWARM_GENESIS_GOSSIP_PORT=(None if args.no_federate else args.genesis_gossip_port),
         SWARM_BEACON_NAME=(args.name or None),
+        # --domain: advertise https://<domain>/ as this beacon's clickable status URL.
+        # You bring the TLS (front the plain-HTTP status page with a reverse proxy /
+        # Caddy); the daemon itself speaks plain HTTP. Only set it if you own the
+        # domain and it resolves here — otherwise the link 404s/fails for viewers.
+        SWARM_BEACON_URL=(f"https://{args.domain}/" if args.domain else None),
     )
     print(f"swarmint: hosting a beacon (seed {seed}); node_id is deterministic "
           f"from the seed. Others join with:\n"
@@ -284,6 +289,9 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--task", default="digits", choices=["digits", "synthetic"],
                    help="what the swarm learns (default: real sklearn digits)")
     b.add_argument("--name", default=None, help="human label for this beacon in the directory")
+    b.add_argument("--domain", default=None,
+                   help="a domain you OWN that resolves here + is TLS-fronted; advertised as this "
+                        "beacon's https status URL (the daemon serves plain HTTP — you bring the TLS)")
     b.add_argument("--genesis", default=BEACON_HOST,
                    help=f"beacon to bootstrap the federation from (default: the genesis, {BEACON_HOST})")
     b.add_argument("--genesis-id", default=BEACON_NODE_ID, help="bootstrap beacon node_id (hex)")

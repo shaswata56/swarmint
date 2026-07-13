@@ -50,6 +50,57 @@ def test_gossip_and_ping_wire_roundtrip():
     assert wire.unpack_beacon_ping(p) == {"op": "ping", "nonce": b"n0"}
 
 
+def test_beacon_census_wire_roundtrip():
+    entries = [{"id": b"\x01" * 20, "ep": "1.2.3.4:9003", "topics": [1]},
+               {"id": b"\x02" * 20, "ep": "5.6.7.8:9401", "topics": [101, 102]}]
+    data = wire.pack_beacon_census({"entries": entries})
+    out = wire.unpack_beacon_census(data)["entries"]
+    assert out[0]["id"] == b"\x01" * 20 and out[0]["ep"] == "1.2.3.4:9003" and out[0]["topics"] == [1]
+    assert out[1]["topics"] == [101, 102]
+
+
+class _DummyBus:
+    def __init__(self):
+        self.peer_addrs = {}
+    def send(self, msg):
+        pass
+
+
+def test_federation_census_aggregation_and_expiry():
+    from swarmint.network.bus import Message
+    from swarmint.network.federation import CENSUS_TTL_S, FederationService
+
+    me = _ident(1)
+    svc = FederationService(me, _DummyBus(), {"name": "me", "space_fp": ""})
+    beacon_b, beacon_c = _ident(2), _ident(3)
+    peer_x, peer_y = _ident(50), _ident(60)
+
+    # beacon B reports peer_x; beacon C reports peer_x (shared) AND peer_y
+    svc.dispatch(Message(beacon_b.node_id, me.node_id, "beacon_census",
+                         {"entries": [{"id": peer_x.node_id, "ep": "1.1.1.1:9003", "topics": [1]}]}))
+    svc.dispatch(Message(beacon_c.node_id, me.node_id, "beacon_census",
+                         {"entries": [{"id": peer_x.node_id, "ep": "1.1.1.1:9003", "topics": [1]},
+                                      {"id": peer_y.node_id, "ep": "2.2.2.2:9004", "topics": [2]}]}))
+    snap = svc.swarm_snapshot(now=__import__("time").time())
+    assert set(snap) == {peer_x.node_id.hex(), peer_y.node_id.hex()}
+    # peer_x is vouched for by BOTH beacons; peer_y by only C
+    assert set(snap[peer_x.node_id.hex()]["sources"]) == {beacon_b.node_id.hex(), beacon_c.node_id.hex()}
+    assert snap[peer_y.node_id.hex()]["sources"] == [beacon_c.node_id.hex()]
+    assert snap[peer_x.node_id.hex()]["ep"] == "1.1.1.1:9003"
+
+    # a beacon never censuses itself into its own aggregate
+    svc.dispatch(Message(beacon_b.node_id, me.node_id, "beacon_census",
+                         {"entries": [{"id": me.node_id, "ep": "9.9.9.9:9001", "topics": []}]}))
+    assert me.node_id.hex() not in svc.swarm_snapshot(now=__import__("time").time())
+
+    # entries whose every source has aged past the TTL are dropped
+    import time as _t
+    for rec in svc.swarm_census.values():
+        rec["sources"] = {b: _t.time() - CENSUS_TTL_S - 1 for b in rec["sources"]}
+    svc._expire_census(_t.time())
+    assert svc.swarm_census == {}
+
+
 def test_registry_record_newest_wins_and_self_exclusion():
     me = _ident(1)
     other = _ident(2)

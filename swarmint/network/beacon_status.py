@@ -34,63 +34,69 @@ ACTIVE_WINDOW_S = 30.0
 
 
 def snapshot(net, start_time: float, now: float) -> dict:
-    """Read-only view of the rendezvous's live peer knowledge. Combines:
-      - discovery.peer_addrs  : the peer's SELF-ADVERTISED gossip address
-      - bus.peer_addrs        : the source address the beacon OBSERVED packets
-                                arriving from = the peer's public (post-NAT) mapping
-      - discovery.peer_seen_at: last time we heard from the peer (freshness)
-      - nat.reachable         : peers a direct (hole-punched) path was opened to
-    A peer whose observed public host differs from its advertised host is behind a
-    NAT that remapped it — reported plainly as "behind NAT", else "public"."""
+    """Read-only WHOLE-SWARM view. Each peer row aggregates:
+      - THIS beacon's directly-known peers (discovery/bus.peer_addrs + freshness), and
+      - peers reported by OTHER beacons via the signed P2P census gossip (no HTTP).
+    Merged by node_id, so every beacon renders the same complete swarm-wide peer
+    list. Columns are only ones meaningful ACROSS beacons — endpoint, topics, which
+    beacons vouch for the peer ("seen via"), freshness — deliberately NOT the
+    observer-relative NAT/hole-punch facts (those mean nothing in another beacon's
+    aggregate)."""
     disc = net.discovery
     bus = net.bus
-    reachable = getattr(net.nat, "reachable", set()) if net.nat else set()
-    peers = []
+    fed = getattr(net, "federation", None)
+    own_name = (fed.own.get("name") or "this beacon") if fed is not None else "this beacon"
+
+    # --- this beacon's own peers (excluding other beacons, which have their own row
+    #     in the Federated Beacons table) ---
+    beacon_ids = set(fed.registry.beacons) if fed is not None else set()
+    local = {}
     for nid in set(disc.peer_addrs) | set(bus.peer_addrs):
-        advertised = disc.peer_addrs.get(nid)
-        observed = bus.peer_addrs.get(nid)
+        if nid in beacon_ids or nid == net.identity.node_id:
+            continue
+        addr = disc.peer_addrs.get(nid) or bus.peer_addrs.get(nid)
         seen = disc.peer_seen_at.get(nid)
         age = (now - seen) if seen else None
-        adv_host = advertised[0] if advertised else None
-        obs_host = observed[0] if observed else None
-        # honest classification from what we can observe:
-        if observed is None:
-            nat = "unknown"
-        elif adv_host in (None, "0.0.0.0") or (obs_host and adv_host and obs_host != adv_host):
-            nat = "behind NAT"
-        else:
-            nat = "public"
-        # "directly reachable" = a public peer (no NAT remap, so we dial it straight)
-        # OR one we opened a hole-punched path to. Only a peer we can neither reach
-        # directly nor punch actually needs relaying — the old logic marked every
-        # non-punched peer as "via relay/none", which mislabeled ordinary public
-        # backbone nodes (reachable directly, never punched) as relay-only.
-        direct = (nid in reachable) or (nat == "public")
-        peers.append({
+        local[nid.hex()] = {
             "id": nid.hex(),
-            "advertised": f"{advertised[0]}:{advertised[1]}" if advertised else "-",
-            "observed": f"{observed[0]}:{observed[1]}" if observed else "-",
-            "nat": nat,
+            "endpoint": f"{addr[0]}:{addr[1]}" if addr else "-",
             "topics": sorted(disc.peer_topics.get(nid, set())),
             "age_s": age,
-            "active": (age is not None and age <= ACTIVE_WINDOW_S),
-            "punched": nid in reachable,
-            "direct": direct,
-        })
-    peers.sort(key=lambda p: (not p["active"], p["age_s"] if p["age_s"] is not None else 1e9))
-    # Beacon federation (if this beacon participates): the directory of OTHER
-    # beacons it knows, each with live reachability. Same soft-state every beacon
-    # holds, so this table looks the same viewed from any beacon in the mesh.
-    federation = []
-    if getattr(net, "federation", None) is not None:
-        federation = net.federation.registry.snapshot(now)
+            "sources": [own_name],
+            "local": True,
+        }
+
+    # --- peers reported by other beacons (the remote half of the aggregate) ---
+    peers = dict(local)
+    if fed is not None:
+        for pid_hex, rec in fed.swarm_snapshot(now).items():
+            names = [fed.beacon_name(b) for b in rec["sources"]]
+            if pid_hex in peers:
+                # already known locally — just credit the other beacons that see it too
+                for nm in names:
+                    if nm not in peers[pid_hex]["sources"]:
+                        peers[pid_hex]["sources"].append(nm)
+                if not peers[pid_hex]["topics"]:
+                    peers[pid_hex]["topics"] = list(rec["topics"])
+            else:
+                peers[pid_hex] = {
+                    "id": pid_hex, "endpoint": rec["ep"], "topics": list(rec["topics"]),
+                    "age_s": rec["age_s"], "sources": names, "local": False,
+                }
+
+    peer_list = list(peers.values())
+    for p in peer_list:
+        p["active"] = (p["age_s"] is not None and p["age_s"] <= ACTIVE_WINDOW_S)
+    peer_list.sort(key=lambda p: (not p["active"], p["age_s"] if p["age_s"] is not None else 1e9))
+
+    federation = fed.registry.snapshot(now) if fed is not None else []
     return {
         "beacon_id": net.identity.node_id.hex(),
         "uptime_s": now - start_time,
-        "n_total": len(peers),
-        "n_active": sum(1 for p in peers if p["active"]),
-        "peers": peers,
-        "federates": getattr(net, "federation", None) is not None,
+        "n_total": len(peer_list),
+        "n_active": sum(1 for p in peer_list if p["active"]),
+        "peers": peer_list,
+        "federates": fed is not None,
         "federation": federation,
         "n_beacons_reachable": sum(1 for b in federation if b["reachable"]),
     }
@@ -172,10 +178,12 @@ _PAGE = """<!doctype html>
     <div class="card"><div class="n" id="uptime">—</div><div class="l">beacon uptime</div></div>
     <div class="card" id="fedcard" style="display:none"><div class="n" id="n_fed">—</div><div class="l">federated beacons</div></div>
   </div>
+  <p class="sub" style="margin:0 0 10px;">Every node in the swarm, aggregated from all
+  beacons over signed P2P gossip (no central server) — the same whole-swarm view from any beacon.</p>
   <div class="tblwrap"><table>
     <thead><tr>
-      <th>peer id</th><th>status</th><th>public endpoint (observed)</th>
-      <th>reachability</th><th>direct path</th><th>topics</th><th>last seen</th>
+      <th>peer id</th><th>status</th><th>endpoint</th>
+      <th>topics</th><th>seen via</th><th>last seen</th>
     </tr></thead>
     <tbody id="peers"></tbody>
   </table></div>
@@ -194,8 +202,8 @@ _PAGE = """<!doctype html>
   </div>
   <footer>
     beacon <code class="mono" id="beaconid">—</code> ·
-    &ldquo;public endpoint&rdquo; is the post-NAT address the beacon observes packets arriving from ·
-    updates live via the API (no reload) · cached client-side · no data stored beyond the live session.
+    &ldquo;seen via&rdquo; lists the beacons that vouch for each peer · peers aggregated swarm-wide over
+    signed P2P gossip · updates live via the API (no reload) · cached client-side · no data stored.
   </footer>
 </div>
 <noscript><p style="color:#8b93a7;padding:0 20px">This live view needs JavaScript. The raw data is at
@@ -228,21 +236,18 @@ window.__INITIAL__ = /*__INITIAL__*/null;
   function peerRow(){ return tr(
     '<td class="mono idc"></td>' +
     '<td><span class="dot"></span><span class="statt"></span></td>' +
-    '<td class="mono obs"></td>' +
-    '<td><span class="pill nat"></span></td>' +
-    '<td class="dir"></td><td class="mono top"></td><td class="age"></td>'); }
+    '<td class="mono ep"></td>' +
+    '<td class="mono top"></td><td class="via"></td><td class="age"></td>'); }
   function updPeer(row, p){
     if(!row) return;
     row.classList.toggle("inactive", !p.active);
     setText(row.querySelector(".idc"), truncId(p.id));
     setClass(row.querySelector(".dot"), "dot " + (p.active ? "active" : "inactive"));
     setText(row.querySelector(".statt"), p.active ? "active" : "inactive");
-    setText(row.querySelector(".obs"), p.observed);
-    var nat = row.querySelector(".nat");
-    setClass(nat, "pill " + (p.nat === "public" ? "nat-public" : p.nat === "behind NAT" ? "nat-nat" : "nat-unknown"));
-    setText(nat, p.nat);
-    setText(row.querySelector(".dir"), p.direct ? (p.punched ? "\\u2713 punched" : "\\u2713 direct") : "via relay");
+    setText(row.querySelector(".ep"), p.endpoint);
     setText(row.querySelector(".top"), (p.topics && p.topics.length) ? p.topics.join(",") : "\\u2014");
+    var via = (p.sources && p.sources.length) ? p.sources.join(", ") : "\\u2014";
+    setText(row.querySelector(".via"), via);
     row.dataset.age = (p.age_s == null ? "" : p.age_s);
     setText(row.querySelector(".age"), fmtAgo(p.age_s));
   }
@@ -288,8 +293,8 @@ window.__INITIAL__ = /*__INITIAL__*/null;
   function render(d){
     setText($("n_active"), d.n_active); setText($("n_total"), d.n_total);
     setText($("uptime"), fmtUp(d.uptime_s)); setText($("beaconid"), truncId(d.beacon_id));
-    reconcile($("peers"), d.peers || [], peerRow, updPeer, 7,
-      "No peers have contacted the beacon yet. Start a node pointed at this rendezvous and it will appear here.");
+    reconcile($("peers"), d.peers || [], peerRow, updPeer, 6,
+      "No peers in the swarm yet. Start a node pointed at any beacon and it will appear here.");
     var showFed = !!d.federates;
     $("fedsec").style.display = showFed ? "" : "none";
     $("fedcard").style.display = showFed ? "" : "none";

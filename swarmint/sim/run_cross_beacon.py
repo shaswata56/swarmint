@@ -132,6 +132,18 @@ async def run(*, host="127.0.0.1", base_port=9601, n_classes=6, per_side=3,
     a_acc = float(beacon_a.node.model.accuracy(tx, ty))
     b_acc = float(beacon_b.node.model.accuracy(tx, ty))
 
+    # Whole-swarm peer aggregate via the P2P census: each beacon should now know
+    # about the OTHER beacon's worker nodes (reported over census gossip), not just
+    # its own — the "any beacon lists all swarm peers" property.
+    a_census = beacon_a.federation.swarm_snapshot(now=__import__("time").time())
+    b_census = beacon_b.federation.swarm_snapshot(now=__import__("time").time())
+    b_worker_ids = {w.identity.node_id.hex() for w in workers[per_side:]}
+    a_worker_ids = {w.identity.node_id.hex() for w in workers[:per_side]}
+    a_sees_b_workers = len(b_worker_ids & set(a_census))
+    b_sees_a_workers = len(a_worker_ids & set(b_census))
+    _log("census", A_knows_remote=len(a_census), A_sees_B_workers=a_sees_b_workers,
+         B_knows_remote=len(b_census), B_sees_A_workers=b_sees_a_workers)
+
     for w in workers:
         await w.stop()
     await beacon_b.stop()
@@ -141,6 +153,8 @@ async def run(*, host="127.0.0.1", base_port=9601, n_classes=6, per_side=3,
         "A_labels": sorted(a_labels), "B_labels": sorted(b_labels),
         "A_has_right": bool(set(right) & a_labels), "B_has_left": bool(set(left) & b_labels),
         "A_acc": a_acc, "B_acc": b_acc, "left": left, "right": right,
+        "A_sees_B_workers": a_sees_b_workers, "B_sees_A_workers": b_sees_a_workers,
+        "per_side": per_side,
     }
 
 
@@ -151,12 +165,16 @@ def main():
     print(f"  beacon B learned labels {res['B_labels']}  (its own side was {res['right']})")
     print(f"  full-set accuracy   A={res['A_acc']:.3f}  B={res['B_acc']:.3f}  "
           f"(half-coverage ceiling ~0.5)")
+    print(f"  whole-swarm census: A sees {res['A_sees_B_workers']}/{res['per_side']} of B's workers, "
+          f"B sees {res['B_sees_A_workers']}/{res['per_side']} of A's (via P2P census gossip)")
     crossed = res["A_has_right"] and res["B_has_left"]
     lifted = res["A_acc"] > 0.6 and res["B_acc"] > 0.6
-    ok = crossed and lifted
+    censused = res["A_sees_B_workers"] > 0 and res["B_sees_A_workers"] > 0
+    ok = crossed and lifted and censused
     print(f"\n{'PASS' if ok else 'FAIL'}: prototypes {'CROSSED' if crossed else 'did NOT cross'} "
-          f"the beacon boundary and full-set accuracy {'rose past' if lifted else 'stayed at'} "
-          f"the half-coverage ceiling — the two beacons learned as one system.")
+          f"the beacon boundary, accuracy {'rose past' if lifted else 'stayed at'} the half-coverage "
+          f"ceiling, and each beacon {'SEES' if censused else 'does NOT see'} the other's peers — "
+          f"the two beacons learned AND observe the swarm as one system.")
     return 0 if ok else 1
 
 

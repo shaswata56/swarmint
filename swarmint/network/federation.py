@@ -77,6 +77,8 @@ REACHABLE_TTL_S = 45.0       # "reachable" decays faster than mere existence: a 
 GOSSIP_FANOUT = 4            # beacons we push the known-set to each federation tick
 GOSSIP_BLOB_GROUP = 3        # signed adverts per datagram (~300B each) to stay <1200B budget;
                              # a larger known-set is SPLIT across datagrams, never truncated
+CENSUS_TTL_S = 90.0          # drop a peer from the swarm census if no beacon has re-reported it
+CENSUS_CHUNK = 15            # census entries per datagram (~55B each) to stay <1200B; split if more
 
 
 @dataclass
@@ -197,17 +199,22 @@ class FederationService:
     reachability pings, and drives the periodic re-advert / gossip / probe tick."""
 
     def __init__(self, identity: Identity, bus, own: dict, *,
-                 genesis_id: bytes = None, genesis_addr: tuple = None, on_bridge=None):
+                 genesis_id: bytes = None, genesis_addr: tuple = None, on_bridge=None,
+                 census_source=None):
         self.identity = identity
         self.bus = bus
         self.own = own                       # host/gossip_port/dht_port/task/n_classes/topics/name/space_fp
         self.genesis_id = genesis_id
         self.genesis_addr = genesis_addr
         self.on_bridge = on_bridge           # called(node_id, addr) to cross-learn with a compatible beacon
+        self.census_source = census_source   # callable() -> [{id, ep, topics}] of OUR local peers
         self.registry = BeaconRegistry(self_id=identity.node_id, own_fp=own.get("space_fp", ""))
         self.replay_guard = ReplayGuard()
         self._pending_pings = {}             # nonce -> node_id
         self._bridged = set()                # beacons we've already wired into local gossip
+        # swarm census aggregated from OTHER beacons' gossip (pure P2P, no HTTP):
+        # peer_id -> {"ep": str, "topics": [int], "sources": {beacon_id: ts}, "seen_at": ts}
+        self.swarm_census = {}
         self._own_blob = None
         if genesis_id is not None and genesis_addr is not None:
             self.bus.peer_addrs.setdefault(genesis_id, genesis_addr)
@@ -249,6 +256,27 @@ class FederationService:
             self._on_gossip(msg)
         elif msg.kind == "beacon_ping":
             self._on_ping(msg)
+        elif msg.kind == "beacon_census":
+            self._on_census(msg)
+
+    def _on_census(self, msg: Message) -> None:
+        # msg.sender is the reporting beacon (cryptographically verified by the bus).
+        # Merge each reported peer into the swarm aggregate, crediting this source.
+        now = time.time()
+        sender = msg.sender
+        for e in msg.payload["entries"]:
+            pid = e["id"]
+            if pid == self.identity.node_id:
+                continue
+            rec = self.swarm_census.get(pid)
+            if rec is None:
+                rec = {"ep": e["ep"], "topics": list(e["topics"]), "sources": {}, "seen_at": now}
+                self.swarm_census[pid] = rec
+            rec["ep"] = e["ep"] or rec["ep"]
+            if e["topics"]:
+                rec["topics"] = sorted(set(rec["topics"]) | set(e["topics"]))
+            rec["sources"][sender] = now
+            rec["seen_at"] = now
 
     def _on_gossip(self, msg: Message) -> None:
         now = time.time()
@@ -298,6 +326,43 @@ class FederationService:
             group = blobs[i:i + GOSSIP_BLOB_GROUP]
             self.bus.send(Message(self.identity.node_id, target, "beacon_gossip", {"blobs": group}))
 
+    def _send_census(self, target: bytes) -> None:
+        """Push our local-peer census to `target`, split into datagrams of at most
+        CENSUS_CHUNK so a big peer set is spread across packets, never truncated."""
+        if self.census_source is None:
+            return
+        entries = self.census_source() or []
+        for i in range(0, len(entries), CENSUS_CHUNK):
+            self.bus.send(Message(self.identity.node_id, target, "beacon_census",
+                                  {"entries": entries[i:i + CENSUS_CHUNK]}))
+
+    def _expire_census(self, now: float) -> None:
+        for pid, rec in list(self.swarm_census.items()):
+            rec["sources"] = {b: ts for b, ts in rec["sources"].items() if now - ts <= CENSUS_TTL_S}
+            if not rec["sources"]:
+                del self.swarm_census[pid]        # no beacon vouches for it anymore
+            else:
+                rec["seen_at"] = max(rec["sources"].values())
+
+    def swarm_snapshot(self, now: float) -> dict:
+        """peer_id_hex -> {ep, topics, sources: [beacon_id_hex...], age_s} aggregated
+        from OTHER beacons' censuses — the remote half of the whole-swarm peer view
+        (the local half, with its richer detail, is merged in by beacon_status)."""
+        return {pid.hex(): {"ep": rec["ep"], "topics": list(rec["topics"]),
+                            "sources": [b.hex() for b in rec["sources"]],
+                            "age_s": now - rec["seen_at"]}
+                for pid, rec in self.swarm_census.items()}
+
+    def beacon_name(self, beacon_id_hex: str) -> str:
+        """Resolve a beacon id (hex) to its friendly name for 'seen via' display."""
+        if beacon_id_hex == self.identity.node_id.hex():
+            return self.own.get("name", "") or "this beacon"
+        try:
+            info = self.registry.beacons.get(bytes.fromhex(beacon_id_hex))
+        except ValueError:
+            info = None
+        return (info.name if info and info.name else beacon_id_hex[:8])
+
     def announce_to_genesis(self, now: float) -> None:
         """Introduce ourselves to our bootstrap beacon (the genesis by default,
         but any known beacon works): send our signed advert. It verifies and pings
@@ -321,7 +386,12 @@ class FederationService:
             rng.shuffle(targets)
             for tid in targets[:GOSSIP_FANOUT]:
                 self._send_blobs(tid, blobs)
+        # Peer census -> EVERY known beacon (not just the fanout): the directory is
+        # fully replicated, so censusing all of them makes the swarm-peer aggregate
+        # complete on every beacon without any forwarding.
         for nid in list(self.registry.beacons.keys()):
+            self._send_census(nid)
             self.ping(nid)
             self._maybe_bridge(nid)   # re-assert bridges (idempotent) as reachability firms up
         self.registry.expire(now)
+        self._expire_census(now)

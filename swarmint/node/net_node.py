@@ -124,10 +124,11 @@ class NetNode:
 
         if self.enable_federation:
             from ..network.federation import FederationService
-            from ..network.wire import (pack_beacon_gossip, pack_beacon_ping,
-                                        unpack_beacon_gossip, unpack_beacon_ping)
+            from ..network.wire import (pack_beacon_census, pack_beacon_gossip, pack_beacon_ping,
+                                        unpack_beacon_census, unpack_beacon_gossip, unpack_beacon_ping)
             self.bus.register_kind("beacon_gossip", pack_beacon_gossip, unpack_beacon_gossip)
             self.bus.register_kind("beacon_ping", pack_beacon_ping, unpack_beacon_ping)
+            self.bus.register_kind("beacon_census", pack_beacon_census, unpack_beacon_census)
             topics = sorted(self.topics) if self.topics else [self.topic]
             own = {"host": advertise_host, "gossip_port": self.bus.bound_port,
                    "dht_port": dht_port, "task": self.beacon_task, "n_classes": self.n_classes,
@@ -147,10 +148,26 @@ class NetNode:
                 self.bus.send(Message(self.identity.node_id, nid, "pex",
                                       self.discovery.pex_payload()))
 
+            def _census_source():
+                # OUR local peers, for gossiping to other beacons: node_id +
+                # advertised endpoint + topic hints (from PEX). Excludes other
+                # beacons (they advertise themselves) and ourselves.
+                out = []
+                beacon_ids = set(self.federation.registry.beacons) if self.federation else set()
+                for pid in self.node.peers:
+                    if pid == self.identity.node_id or pid in beacon_ids:
+                        continue
+                    addr = self.discovery.peer_addrs.get(pid) or self.bus.peer_addrs.get(pid)
+                    if addr is None:
+                        continue
+                    out.append({"id": pid, "ep": f"{addr[0]}:{addr[1]}",
+                                "topics": sorted(self.discovery.peer_topics.get(pid, set()))})
+                return out
+
             self.federation = FederationService(
                 self.identity, self.bus, own,
                 genesis_id=self.federation_genesis_id, genesis_addr=self.federation_genesis_addr,
-                on_bridge=_bridge_beacon)
+                on_bridge=_bridge_beacon, census_source=_census_source)
 
         base_dispatch = self.bus._handler
 
@@ -188,7 +205,7 @@ class NetNode:
                 self._on_embedding_request(msg)
             elif msg.kind == "emb_resp":
                 self._on_embedding_response(msg)
-            elif msg.kind in ("beacon_gossip", "beacon_ping"):
+            elif msg.kind in ("beacon_gossip", "beacon_ping", "beacon_census"):
                 if self.federation is not None:
                     self.federation.dispatch(msg)
             else:

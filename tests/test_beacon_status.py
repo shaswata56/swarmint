@@ -21,9 +21,11 @@ from swarmint.network import beacon_status as bs
 def _fake_snapshot(with_federation=True):
     return {
         "beacon_id": "8c30c97e7fd5460ce3b962db4cd75879eecd8abd",
-        "uptime_s": 12.0, "n_total": 1, "n_active": 1,
-        "peers": [{"id": "aa" * 20, "advertised": "1.1.1.1:9001", "observed": "1.1.1.1:9001",
-                  "nat": "public", "topics": [1], "age_s": 2.0, "active": True, "punched": False}],
+        "uptime_s": 12.0, "n_total": 2, "n_active": 2,
+        "peers": [{"id": "aa" * 20, "endpoint": "1.1.1.1:9003", "topics": [1], "age_s": 2.0,
+                  "active": True, "local": True, "sources": ["this beacon"]},
+                 {"id": "cc" * 20, "endpoint": "5.6.7.8:9401", "topics": [101], "age_s": 4.0,
+                  "active": True, "local": False, "sources": ["beacon-brave-fox-1677"]}],
         "federates": with_federation,
         "federation": ([{"id": "bb" * 20, "name": "peer-1", "host": "34.132.137.213",
                         "gossip_port": 9001, "dht_port": 9002, "task": "digits", "n_classes": 10,
@@ -38,6 +40,17 @@ def test_page_is_api_driven_not_meta_refresh():
     assert 'meta http-equiv="refresh"' not in html
     assert "window.__INITIAL__" in html and "/status.json" in html
     assert "/*__INITIAL__*/null" not in html  # token must be replaced
+
+
+def test_peer_table_is_whole_swarm_aggregate():
+    html = bs.render_html(_fake_snapshot())
+    # the peer table exposes the swarm-wide "seen via" column, and the old
+    # observer-relative "direct path" column is gone (reachability stays, but only
+    # on the Federated Beacons table — a beacon's reachability IS globally meaningful)
+    assert "seen via" in html
+    assert "direct path" not in html
+    # both a local and a remote-only peer are rendered from the aggregate
+    assert '"local": true' in html and '"local": false' in html
 
 
 def test_dom_writes_are_null_guarded():
@@ -68,6 +81,7 @@ def test_status_json_endpoint_shape_matches_snapshot_keys():
 
 if __name__ == "__main__":
     test_page_is_api_driven_not_meta_refresh()
+    test_peer_table_is_whole_swarm_aggregate()
     test_dom_writes_are_null_guarded()
     test_status_url_rendered_for_clickable_federation_row()
     test_status_json_endpoint_shape_matches_snapshot_keys()

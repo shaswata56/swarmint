@@ -27,6 +27,9 @@ def test_two_beacons_learn_as_one_system():
     assert res["B_has_left"], f"beacon B never learned the left side: {res['B_labels']}"
     # and full-set accuracy rose past the ~0.5 half-coverage ceiling
     assert res["A_acc"] > 0.6 and res["B_acc"] > 0.6, (res["A_acc"], res["B_acc"])
+    # and each beacon SEES the other's peers via the P2P census gossip (whole-swarm view)
+    assert res["A_sees_B_workers"] > 0 and res["B_sees_A_workers"] > 0, \
+        (res["A_sees_B_workers"], res["B_sees_A_workers"])
 
 
 if __name__ == "__main__":
