@@ -108,6 +108,7 @@ async def main() -> int:
     genesis_gossip_port = int(_env("SWARM_GENESIS_GOSSIP_PORT")
                               or _env("SWARM_MASTER_GOSSIP_PORT", "9001"))
     beacon_name = _env("SWARM_BEACON_NAME", "") or ""
+    beacon_url = _env("SWARM_BEACON_URL", "") or ""  # explicit status-page URL (domain+TLS), if any
 
     identity = _identity_from_seed(seed)
     rng = random.Random(1000 + seed)
@@ -145,6 +146,8 @@ async def main() -> int:
                   radii=(task.radii or None),
                   enable_federation=(federate and role == "rendezvous"),
                   beacon_task=task_name, beacon_name=beacon_name, beacon_space_fp=space_fp,
+                  beacon_http_port=(http_port if (role == "rendezvous" and http_port) else 0),
+                  beacon_url=beacon_url,
                   federation_genesis_id=fed_genesis_id, federation_genesis_addr=fed_genesis_addr)
 
     def feed():

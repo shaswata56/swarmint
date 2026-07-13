@@ -72,6 +72,8 @@ class BeaconInfo:
     topics: list
     name: str
     space_fp: str                # shared-space fingerprint (see space_fingerprint)
+    http_port: int                # this beacon's status-page port, 0 if none
+    url: str                     # explicit status-page URL override (domain+TLS), or ""
     advert_ts: float             # ts from the signed advert body (newest wins)
     blob: bytes                  # the signed advert envelope, re-gossiped verbatim
     seen_at: float               # wall time we last accepted an advert for it
@@ -107,7 +109,8 @@ class BeaconRegistry:
             node_id=nid, host=advert["host"], gossip_port=advert["gossip_port"],
             dht_port=advert["dht_port"], task=advert["task"], n_classes=advert["n_classes"],
             topics=list(advert["topics"]), name=advert.get("name", ""),
-            space_fp=advert.get("space_fp", ""), advert_ts=advert["ts"],
+            space_fp=advert.get("space_fp", ""), http_port=advert.get("http_port", 0),
+            url=advert.get("url", ""), advert_ts=advert["ts"],
             blob=blob, seen_at=now,
             reachable=(existing.reachable if existing else False),
             last_pong_at=(existing.last_pong_at if existing else None))
@@ -130,6 +133,18 @@ class BeaconRegistry:
     def gossip_blobs(self) -> list:
         return [info.blob for info in self.beacons.values()]
 
+    @staticmethod
+    def status_url(host: str, http_port: int, url: str) -> str:
+        """The clickable URL for this beacon's status page, or "" if it doesn't
+        run one. An explicit `url` (domain+TLS, e.g. the genesis's) always wins;
+        otherwise falls back to http://host[:port]/ from what it actually
+        advertised — never guesses https for a bare IP (no cert would be valid)."""
+        if url:
+            return url
+        if not http_port:
+            return ""
+        return f"http://{host}/" if http_port == 80 else f"http://{host}:{http_port}/"
+
     def snapshot(self, now: float) -> list:
         """Read-only view for the status page / CLI."""
         out = []
@@ -140,6 +155,7 @@ class BeaconRegistry:
                 "task": info.task, "n_classes": info.n_classes, "topics": list(info.topics),
                 "reachable": info.reachable, "age_s": now - info.seen_at,
                 "same_space": info.space_fp == self.own_fp,
+                "status_url": self.status_url(info.host, info.http_port, info.url),
             })
         out.sort(key=lambda b: (not b["reachable"], b["age_s"]))
         return out
@@ -174,7 +190,8 @@ class FederationService:
             self.identity.node_id, self.own["host"], self.own["gossip_port"],
             self.own["dht_port"], self.own["task"], self.own["n_classes"],
             self.own["topics"], self.own.get("name", ""), ts=now,
-            space_fp=self.own.get("space_fp", ""))
+            space_fp=self.own.get("space_fp", ""),
+            http_port=self.own.get("http_port", 0), url=self.own.get("url", ""))
         self._own_blob = self.identity.sign_envelope(body, now)
         return self._own_blob
 

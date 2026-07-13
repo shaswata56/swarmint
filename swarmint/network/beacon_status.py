@@ -140,6 +140,9 @@ _PAGE = """<!doctype html>
   tr.enter { opacity:0; }
   tr.flash { background-color:#16233a; }
   .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px; }
+  a.idc { color:#7fb2ff; text-decoration:none; }
+  a.idc:hover { text-decoration:underline; }
+  a.idc.nolink { color:inherit; cursor:default; pointer-events:none; }
   .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:7px;
          transition:background .3s ease, box-shadow .3s ease; }
   .dot.active { background:#5ee0a0; box-shadow:0 0 8px #5ee0a099; }
@@ -197,6 +200,7 @@ window.__INITIAL__ = /*__INITIAL__*/null;
   var state = null, baseMs = 0;
   function $(id){ return document.getElementById(id); }
   function setText(node, txt){ if(node && node.textContent !== txt) node.textContent = txt; }
+  function setClass(node, cls){ if(node) node.className = cls; }
   function truncId(h){ return (h||"").slice(0,16) + "\\u2026"; }
   function fmtAgo(s){
     if(s == null) return "\\u2014";
@@ -221,13 +225,14 @@ window.__INITIAL__ = /*__INITIAL__*/null;
     '<td><span class="pill nat"></span></td>' +
     '<td class="dir"></td><td class="mono top"></td><td class="age"></td>'); }
   function updPeer(row, p){
+    if(!row) return;
     row.classList.toggle("inactive", !p.active);
     setText(row.querySelector(".idc"), truncId(p.id));
-    row.querySelector(".dot").className = "dot " + (p.active ? "active" : "inactive");
+    setClass(row.querySelector(".dot"), "dot " + (p.active ? "active" : "inactive"));
     setText(row.querySelector(".statt"), p.active ? "active" : "inactive");
     setText(row.querySelector(".obs"), p.observed);
     var nat = row.querySelector(".nat");
-    nat.className = "pill " + (p.nat === "public" ? "nat-public" : p.nat === "behind NAT" ? "nat-nat" : "nat-unknown");
+    setClass(nat, "pill " + (p.nat === "public" ? "nat-public" : p.nat === "behind NAT" ? "nat-nat" : "nat-unknown"));
     setText(nat, p.nat);
     setText(row.querySelector(".dir"), p.punched ? "\\u2713 direct" : "via relay/none");
     setText(row.querySelector(".top"), (p.topics && p.topics.length) ? p.topics.join(",") : "\\u2014");
@@ -235,15 +240,21 @@ window.__INITIAL__ = /*__INITIAL__*/null;
     setText(row.querySelector(".age"), fmtAgo(p.age_s));
   }
   function beaconRow(){ return tr(
-    '<td class="mono idc"></td><td class="nm"></td><td class="mono ep"></td>' +
+    '<td><a class="mono idc nolink" target="_blank" rel="noopener"></a></td><td class="nm"></td><td class="mono ep"></td>' +
     '<td class="tk"></td><td><span class="pill re"></span></td><td class="age"></td>'); }
   function updBeacon(row, b){
-    setText(row.querySelector(".idc"), truncId(b.id));
+    if(!row) return;
+    var idc = row.querySelector(".idc");
+    setText(idc, truncId(b.id));
+    if(idc){
+      if(b.status_url){ idc.href = b.status_url; idc.classList.remove("nolink"); idc.title = "Open this beacon's status page"; }
+      else { idc.removeAttribute("href"); idc.classList.add("nolink"); idc.title = ""; }
+    }
     setText(row.querySelector(".nm"), b.name || "\\u2014");
     setText(row.querySelector(".ep"), b.host + ":" + b.gossip_port);
     setText(row.querySelector(".tk"), b.task || "\\u2014");
     var re = row.querySelector(".re");
-    re.className = "pill " + (b.reachable ? "nat-public" : "nat-unknown");
+    setClass(re, "pill " + (b.reachable ? "nat-public" : "nat-unknown"));
     setText(re, b.reachable ? "\\u2713 reachable" : "unverified");
     row.dataset.age = (b.age_s == null ? "" : b.age_s);
     setText(row.querySelector(".age"), fmtAgo(b.age_s));
@@ -299,7 +310,7 @@ window.__INITIAL__ = /*__INITIAL__*/null;
     }).then(function(d){
       apply(d); setLive(true);
       try { localStorage.setItem(CACHE_KEY, JSON.stringify(d)); } catch(e){}
-    }).catch(function(){ setLive(false); });
+    }).catch(function(e){ setLive(false); if(window.console) console.error("swarmint status poll failed:", e); });
   }
   // Instant first paint: embedded snapshot (freshest) else the localStorage cache.
   var init = window.__INITIAL__;

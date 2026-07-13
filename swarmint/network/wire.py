@@ -161,16 +161,19 @@ def unpack_advert(data: bytes) -> dict:
 
 def pack_beacon_advert(node_id: bytes, host: str, gossip_port: int, dht_port: int,
                        task: str, n_classes: int, topics, name: str, ts: float,
-                       space_fp: str = "") -> bytes:
+                       space_fp: str = "", http_port: int = 0, url: str = "") -> bytes:
     # space_fp: a fingerprint of the shared embedding SPACE this beacon's swarm
     # lives in. Cross-beacon learning is only coherent between beacons with the
     # SAME fingerprint (identical genesis space) — otherwise B's prototype vectors
     # are meaningless to A. Empty string => unknown/legacy (never auto-bridged).
+    # http_port: this beacon's status-page port, 0 if it doesn't run one. url: an
+    # explicit override (e.g. "https://beacon.swarmint.org/" for a beacon fronted
+    # by a real domain+TLS) — when absent, a viewer falls back to http://host:http_port/.
     topic_list = [int(topics)] if isinstance(topics, int) else sorted(int(t) for t in topics)
     return _pack({"v": WIRE_VERSION, "k": "beacon_advert", "id": node_id, "host": host,
                   "gp": int(gossip_port), "dp": int(dht_port), "task": task,
                   "nc": int(n_classes), "topics": topic_list, "name": name,
-                  "fp": space_fp, "ts": float(ts)})
+                  "fp": space_fp, "hp": int(http_port), "u": url, "ts": float(ts)})
 
 
 def unpack_beacon_advert(data: bytes) -> dict:
@@ -179,7 +182,8 @@ def unpack_beacon_advert(data: bytes) -> dict:
     return {"node_id": body["id"], "host": body["host"], "gossip_port": body["gp"],
             "dht_port": body["dp"], "task": body["task"], "n_classes": body["nc"],
             "topics": list(body["topics"]), "name": body.get("name", ""),
-            "space_fp": body.get("fp", ""), "ts": body["ts"]}
+            "space_fp": body.get("fp", ""), "http_port": body.get("hp", 0),
+            "url": body.get("u", ""), "ts": body["ts"]}
 
 
 def pack_beacon_gossip(payload: dict) -> bytes:

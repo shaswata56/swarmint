@@ -95,6 +95,18 @@ def test_registry_reachability_and_expiry():
     assert other.node_id not in reg.beacons
 
 
+def test_beacon_registry_status_url():
+    # explicit url override always wins (the genesis's domain+TLS case)
+    assert BeaconRegistry.status_url("1.2.3.4", 8080, "https://beacon.swarmint.org/") \
+        == "https://beacon.swarmint.org/"
+    # no http_port -> no status page -> no link
+    assert BeaconRegistry.status_url("1.2.3.4", 0, "") == ""
+    # bare IP + port 80 -> clean http URL with no port suffix
+    assert BeaconRegistry.status_url("34.132.137.213", 80, "") == "http://34.132.137.213/"
+    # bare IP + non-80 port -> port included; NEVER guesses https for an IP
+    assert BeaconRegistry.status_url("34.132.137.213", 8080, "") == "http://34.132.137.213:8080/"
+
+
 def test_registry_snapshot_orders_reachable_first():
     me = _ident(1)
     reg = BeaconRegistry(self_id=me.node_id)

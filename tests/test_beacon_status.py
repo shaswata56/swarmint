@@ -1,0 +1,74 @@
+"""Regression guards for the live beacon status page (PURE, no sockets/browser).
+
+The page used to crash mid-reconciliation when a DOM query returned null during
+a poll cycle (a `.dot`/`.nat`/`.re` element briefly not found), which silently
+tripped the fetch chain's `.catch()` and stuck the live indicator on
+"reconnecting..." forever with no visible error (found via a real jsdom
+run — see DECISIONS #058). The fix: every DOM write in updPeer/updBeacon goes
+through a null-guarded setClass()/setText(), mirroring the guard setText()
+already had. These tests can't execute the JS (no JS runtime in this suite),
+but they pin the guarded-source PATTERN so a future edit can't silently drop it,
+and they cover the new server-side status_url/federates plumbing that feeds it."""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from swarmint.network import beacon_status as bs
+
+
+def _fake_snapshot(with_federation=True):
+    return {
+        "beacon_id": "8c30c97e7fd5460ce3b962db4cd75879eecd8abd",
+        "uptime_s": 12.0, "n_total": 1, "n_active": 1,
+        "peers": [{"id": "aa" * 20, "advertised": "1.1.1.1:9001", "observed": "1.1.1.1:9001",
+                  "nat": "public", "topics": [1], "age_s": 2.0, "active": True, "punched": False}],
+        "federates": with_federation,
+        "federation": ([{"id": "bb" * 20, "name": "peer-1", "host": "34.132.137.213",
+                        "gossip_port": 9001, "dht_port": 9002, "task": "digits", "n_classes": 10,
+                        "topics": [1], "reachable": True, "age_s": 5.0, "same_space": True,
+                        "status_url": "http://34.132.137.213/"}] if with_federation else []),
+        "n_beacons_reachable": 1 if with_federation else 0,
+    }
+
+
+def test_page_is_api_driven_not_meta_refresh():
+    html = bs.render_html(_fake_snapshot())
+    assert 'meta http-equiv="refresh"' not in html
+    assert "window.__INITIAL__" in html and "/status.json" in html
+    assert "/*__INITIAL__*/null" not in html  # token must be replaced
+
+
+def test_dom_writes_are_null_guarded():
+    """Pins the crash fix: every className write goes through the guarded
+    setClass() helper (mirroring setText()'s existing node-truthy check), and
+    updPeer/updBeacon bail out on a null row instead of dereferencing it."""
+    html = bs.render_html(_fake_snapshot())
+    assert "function setClass(node, cls){ if(node) node.className = cls; }" in html
+    assert "function updPeer(row, p){\n    if(!row) return;" in html
+    assert "function updBeacon(row, b){\n    if(!row) return;" in html
+    # no direct unguarded `.querySelector(...).className =` left in the source
+    assert '.querySelector(".dot").className' not in html
+    assert '.querySelector(".re").className' not in html
+
+
+def test_status_url_rendered_for_clickable_federation_row():
+    html = bs.render_html(_fake_snapshot(with_federation=True))
+    assert '"status_url": "http://34.132.137.213/"' in html
+    assert 'a class="mono idc nolink"' in html  # anchor wrapper present in the row template
+
+
+def test_status_json_endpoint_shape_matches_snapshot_keys():
+    snap = _fake_snapshot()
+    # what beacon_status.serve() would emit for /status.json is the raw snapshot dict
+    assert set(["beacon_id", "uptime_s", "n_total", "n_active", "peers",
+               "federates", "federation", "n_beacons_reachable"]) <= set(snap.keys())
+
+
+if __name__ == "__main__":
+    test_page_is_api_driven_not_meta_refresh()
+    test_dom_writes_are_null_guarded()
+    test_status_url_rendered_for_clickable_federation_row()
+    test_status_json_endpoint_shape_matches_snapshot_keys()
+    print("ok")

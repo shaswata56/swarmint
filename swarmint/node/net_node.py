@@ -61,6 +61,8 @@ class NetNode:
     beacon_task: str = ""             # task/space this beacon's local swarm runs (advertised)
     beacon_name: str = ""             # optional human label for the directory
     beacon_space_fp: str = ""         # shared-space fingerprint; only same-fp beacons cross-learn
+    beacon_http_port: int = 0         # this beacon's status-page port, 0 if none (advertised)
+    beacon_url: str = ""              # explicit status-page URL override (domain+TLS), or ""
     federation_genesis_id: bytes = None    # beacon to bootstrap from (None => we ARE the genesis)
     federation_genesis_addr: tuple = None   # (host, gossip_port) of that bootstrap beacon
 
@@ -129,7 +131,8 @@ class NetNode:
             topics = sorted(self.topics) if self.topics else [self.topic]
             own = {"host": advertise_host, "gossip_port": self.bus.bound_port,
                    "dht_port": dht_port, "task": self.beacon_task, "n_classes": self.n_classes,
-                   "topics": topics, "name": self.beacon_name, "space_fp": self.beacon_space_fp}
+                   "topics": topics, "name": self.beacon_name, "space_fp": self.beacon_space_fp,
+                   "http_port": self.beacon_http_port, "url": self.beacon_url}
 
             def _bridge_beacon(nid, addr):
                 # Cross-beacon learning: make the compatible peer beacon a gossip

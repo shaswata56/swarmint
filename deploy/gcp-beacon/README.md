@@ -29,6 +29,19 @@ gcloud compute ssh swarmint-beacon --zone=us-central1-a --command='bash ~/bootst
 ```
 Copy the `rendezvous_up ... node_id=<HEX>` value it prints — peers need it.
 
+`DOMAIN` is **opt-in** — only set it if this VM owns a real domain (an A record
+already points here) and you want free Caddy-managed HTTPS on it:
+```bash
+DOMAIN=beacon.swarmint.org gcloud compute ssh swarmint-beacon --zone=us-central1-a \
+  --command='DOMAIN=beacon.swarmint.org bash ~/bootstrap.sh <PUBLIC_IP>'
+```
+Leave `DOMAIN` unset for a **peer beacon** (federating with an existing genesis,
+not owning a domain) — the status page then serves plain HTTP directly on `:80`,
+no TLS, no Caddy. ⚠️ Never hardcode a domain default here again: an earlier
+version of this script defaulted `DOMAIN` to the genesis's own domain, so a peer
+bootstrapped from it wrongly installed Caddy fronting a domain it didn't own —
+HTTPS on that peer's bare IP then failed with a TLS/SNI mismatch (`ERR_SSL_PROTOCOL_ERROR`).
+
 ## Run the two peers
 On the **PC** (NAT A) and the **phone/2nd network** (NAT B), each:
 ```bash
@@ -48,16 +61,14 @@ its own `identity ... node_id=` line — cross-wire them into `SWARM_PUNCH_PEERS
 - `punch ... ok=False` then `relay_fallback` — punch failed on this router pair; relay carried the swarm anyway (still a valid, honest outcome — records the router's NAT behavior).
 
 ## Live status page
-The beacon serves a read-only HTML status page (port 80) — visit
-`http://beacon.swarmint.org/` (or the raw IP) to see active/inactive peers, the
-public post-NAT endpoint the beacon observes for each, reachability, and freshness.
-It auto-refreshes every 5s and stores nothing beyond the live session. Requires the
-DNS `A` record above (or use the raw IP); the HTTP firewall rule is
-`swarmint-beacon-http` (tcp:80).
-
-Note: WebFetch/https won't work — the page is plain HTTP on :80 by design (a STUN
-rendezvous can't sit behind an HTTPS-terminating proxy without losing the true UDP
-source address). Browse it directly or `curl http://<ip>/`.
+The beacon serves a read-only status page — a cached HTML shell that updates
+live via `/status.json` (no reload, no flicker; see the front page's client-side
+JS). Genesis (`DOMAIN` set): `https://beacon.swarmint.org/` via Caddy-managed TLS,
+auto-redirected from `:80`. Peer (`DOMAIN` unset): plain `http://<PUBLIC_IP>/` on
+`:80`, no TLS — a bare IP can never get a browser-trusted cert, so don't try HTTPS
+directly against a peer's IP. `swarmint beacons` reads any beacon's
+`/status.json`/`/federation.json` and clicking a beacon's id in the Federated
+Beacons table opens that beacon's own status page (its advertised `status_url`).
 
 ## Cost / lifecycle
 The service runs 24/7 (`SWARM_DURATION_S=0`) on an always-free `e2-micro` +

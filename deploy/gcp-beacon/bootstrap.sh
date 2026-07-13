@@ -16,6 +16,24 @@ DHT_PORT="${DHT_PORT:-9002}"
 REPO="${REPO:-https://github.com/shaswata56/swarmint.git}"
 DEST="${DEST:-/opt/swarmint}"
 
+# DOMAIN is OPT-IN: only set it if THIS VM owns that domain (an A record already
+# points here) and you want free Caddy-managed HTTPS on it — that's the genesis
+# flow (DOMAIN=beacon.swarmint.org). Leave it UNSET for a peer beacon: without a
+# domain there is no way to get a browser-trusted TLS cert for a bare IP, so the
+# status page is instead served directly over plain HTTP on :80 (no Caddy at
+# all). A prior version of this script hardcoded the genesis domain as the
+# DEFAULT, which meant any peer bootstrapped from it wrongly installed Caddy
+# fronting a domain it didn't own — HTTPS on that peer's raw IP would then fail
+# with a TLS/SNI mismatch. Never default this to a real domain again.
+DOMAIN="${DOMAIN:-}"
+if [ -n "$DOMAIN" ]; then
+  HTTP_BIND=127.0.0.1   # Caddy fronts this with HTTPS on 443
+  HTTP_PORT=8080
+else
+  HTTP_BIND=0.0.0.0     # no domain -> serve plain HTTP directly, no TLS
+  HTTP_PORT=80
+fi
+
 echo ">> installing deps ..."
 sudo apt-get update -qq
 sudo apt-get install -y -qq git python3 python3-venv python3-dev build-essential
@@ -36,13 +54,14 @@ SWARM_ADVERTISE_HOST=0.0.0.0
 SWARM_PUBLIC_HOST=${PUBLIC_IP}
 SWARM_GOSSIP_PORT=${GOSSIP_PORT}
 SWARM_DHT_PORT=${DHT_PORT}
-SWARM_HTTP_PORT=8080
-SWARM_HTTP_BIND=127.0.0.1
+SWARM_HTTP_PORT=${HTTP_PORT}
+SWARM_HTTP_BIND=${HTTP_BIND}
 SWARM_ENABLE_RELAY=1
 SWARM_DURATION_S=0
 SWARM_TASK=${SWARM_TASK:-digits}
 SWARM_FEDERATION=1
-SWARM_BEACON_NAME=genesis
+SWARM_BEACON_NAME=${SWARM_BEACON_NAME:-genesis}
+SWARM_BEACON_URL=${DOMAIN:+https://${DOMAIN}/}
 EOF
 # SWARM_FEDERATION=1: this beacon is the GENESIS — the well-known bootstrap entry
 # point (beacon.swarmint.org), not a master. Since its own id equals the default
@@ -81,9 +100,13 @@ echo
 echo ">> beacon live on ${PUBLIC_IP}:${GOSSIP_PORT}(gossip)/${DHT_PORT}(dht)"
 echo "   peers set: SWARM_RENDEZVOUS_HOST=beacon.swarmint.org SWARM_RENDEZVOUS_ID=<node_id above>"
 
-# ---- HTTPS status page via Caddy (auto Let's Encrypt) ----
+# ---- HTTPS status page via Caddy (auto Let's Encrypt) — ONLY if DOMAIN is set ----
 # DOMAIN must have an A record -> this VM's public IP before running (ACME needs it).
-DOMAIN="${DOMAIN:-beacon.swarmint.org}"
+if [ -z "$DOMAIN" ]; then
+  echo ">> no DOMAIN set — status page serves plain HTTP directly on :${HTTP_PORT} (no TLS, no Caddy)."
+  echo "   status page: http://${PUBLIC_IP}/"
+  exit 0
+fi
 echo ">> installing Caddy for HTTPS on ${DOMAIN} ..."
 if ! command -v caddy >/dev/null 2>&1; then
   sudo apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https curl gnupg
