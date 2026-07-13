@@ -148,10 +148,17 @@ class NetNode:
                 self.bus.send(Message(self.identity.node_id, nid, "pex",
                                       self.discovery.pex_payload()))
 
+            _LOOPBACK = ("127.0.0.1", "0.0.0.0", "localhost", "::1")
+
             def _census_source():
                 # OUR local peers, for gossiping to other beacons: node_id +
                 # advertised endpoint + topic hints (from PEX). Excludes other
-                # beacons (they advertise themselves) and ourselves.
+                # beacons (they advertise themselves) and ourselves. A co-located
+                # peer we only know at a loopback address (its packets reached us
+                # over loopback and it never advertised a public one — common for a
+                # beacon's own backbone nodes) is REWRITTEN to our public host: from
+                # outside the box that peer's port lives at the beacon's public IP,
+                # so that's the honest dial-able endpoint to publish swarm-wide.
                 out = []
                 beacon_ids = set(self.federation.registry.beacons) if self.federation else set()
                 for pid in self.node.peers:
@@ -160,7 +167,8 @@ class NetNode:
                     addr = self.discovery.peer_addrs.get(pid) or self.bus.peer_addrs.get(pid)
                     if addr is None:
                         continue
-                    out.append({"id": pid, "ep": f"{addr[0]}:{addr[1]}",
+                    host = advertise_host if addr[0] in _LOOPBACK else addr[0]
+                    out.append({"id": pid, "ep": f"{host}:{addr[1]}",
                                 "topics": sorted(self.discovery.peer_topics.get(pid, set()))})
                 return out
 
