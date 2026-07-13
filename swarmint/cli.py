@@ -86,9 +86,15 @@ def cmd_join(args) -> int:
 
 
 def cmd_beacon(args) -> int:
+    # A hosted beacon needs its OWN identity. Default to a random non-zero seed so
+    # `swarmint beacon` (one command, no flags) is a UNIQUE peer that bootstraps
+    # from the genesis — NOT seed 0, which is the genesis's own id (that would
+    # collide, and net_daemon would think this box IS the genesis). Only the
+    # genesis itself is deployed with an explicit seed 0 (via its env, not this CLI).
+    seed = args.seed if args.seed is not None else random.randint(1, 2**31 - 1)
     _setdefault_env(
         SWARM_ROLE="rendezvous",
-        SWARM_SEED=args.seed,
+        SWARM_SEED=seed,
         SWARM_ADVERTISE_HOST=args.bind,
         SWARM_PUBLIC_HOST=args.public_host,
         SWARM_GOSSIP_PORT=args.gossip_port,
@@ -110,7 +116,7 @@ def cmd_beacon(args) -> int:
         SWARM_GENESIS_GOSSIP_PORT=(None if args.no_federate else args.genesis_gossip_port),
         SWARM_BEACON_NAME=(args.name or None),
     )
-    print(f"swarmint: hosting a beacon (seed {args.seed}); node_id is deterministic "
+    print(f"swarmint: hosting a beacon (seed {seed}); node_id is deterministic "
           f"from the seed. Others join with:\n"
           f"  swarmint join --beacon <this-host> --beacon-id <node_id>\n")
     if not args.no_federate:
@@ -266,8 +272,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="what the swarm learns (default: real sklearn digits)")
     j.set_defaults(func=cmd_join)
 
-    b = sub.add_parser("beacon", help="host your own rendezvous/beacon")
-    b.add_argument("--seed", type=int, default=0, help="beacon identity seed (default 0)")
+    b = sub.add_parser("beacon", help="host your own beacon (one command; joins the federation)")
+    b.add_argument("--seed", type=int, default=None,
+                   help="identity seed (default: random unique peer; do not use 0 — that's the genesis)")
     b.add_argument("--bind", default="0.0.0.0", help="bind host")
     b.add_argument("--public-host", default=None, help="public IP to advertise (1:1-NAT cloud hosts)")
     b.add_argument("--gossip-port", type=int, default=BEACON_GOSSIP_PORT)

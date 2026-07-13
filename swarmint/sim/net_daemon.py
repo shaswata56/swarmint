@@ -136,9 +136,13 @@ async def main() -> int:
             fed_genesis_id = gid
             fed_genesis_addr = (socket.gethostbyname(genesis_host), genesis_gossip_port)
 
-    from ..network.federation import space_fingerprint
+    from ..network.federation import friendly_beacon_name, space_fingerprint
     space_fp = space_fingerprint(task_name, n_classes, embedding=task.embedding,
                                  dim=dim, world_seed=world_seed)
+    # Zero-config naming: an unnamed beacon gets a stable, effectively-unique
+    # friendly name derived from its node_id, so `swarmint beacon` needs no --name.
+    if federate and role == "rendezvous" and not beacon_name:
+        beacon_name = friendly_beacon_name(identity.node_id)
 
     net = NetNode(identity=identity, topic=1, rng=rng, n_classes=n_classes,
                   gossip_interval=gossip_interval, gossip_sample_size=12,

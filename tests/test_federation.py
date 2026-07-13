@@ -95,6 +95,26 @@ def test_registry_reachability_and_expiry():
     assert other.node_id not in reg.beacons
 
 
+def test_friendly_beacon_name_deterministic_and_unique():
+    from swarmint.network.federation import friendly_beacon_name
+    a, b = _ident(100), _ident(200)
+    na = friendly_beacon_name(a.node_id)
+    assert na == friendly_beacon_name(a.node_id)          # stable for the same id
+    assert na.startswith("beacon-") and na.endswith(a.node_id.hex()[:4])
+    assert friendly_beacon_name(b.node_id) != na          # different id -> different name
+    # the 4-hex id suffix makes even a same adjective-noun pair non-duplicate
+    assert na.count("-") >= 3
+
+
+def test_beacon_registry_display_endpoint():
+    from swarmint.network.federation import BeaconRegistry as R
+    # genesis with a domain url -> show the domain (resolves to the same host, reads better)
+    assert R.display_endpoint("136.117.145.214", 9001, "https://beacon.swarmint.org/") \
+        == "beacon.swarmint.org:9001"
+    # bare-IP peer (no url) -> show the IP
+    assert R.display_endpoint("34.132.137.213", 9001, "") == "34.132.137.213:9001"
+
+
 def test_beacon_registry_status_url():
     # explicit url override always wins (the genesis's domain+TLS case)
     assert BeaconRegistry.status_url("1.2.3.4", 8080, "https://beacon.swarmint.org/") \

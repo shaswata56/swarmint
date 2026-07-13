@@ -52,6 +52,24 @@ def space_fingerprint(task: str, n_classes: int, embedding=None,
         h.update(embedding.to_bytes())
     return h.hexdigest()
 
+
+# Friendly auto-names so `swarmint beacon` needs zero config: a memorable
+# adjective-animal label DERIVED FROM the node_id (so it's stable across restarts
+# of the same beacon) with a 4-hex suffix from that id (so it can't collide with
+# another beacon — the node_id is the true unique key and it drives the suffix).
+_ADJ = ("swift", "calm", "bold", "bright", "keen", "quiet", "brave", "sly",
+        "warm", "deep", "amber", "cobalt", "coral", "jade", "slate", "ember")
+_NOUN = ("otter", "finch", "lynx", "heron", "moth", "koi", "wren", "fox",
+         "ibis", "vole", "raven", "seal", "hare", "newt", "crane", "shrew")
+
+
+def friendly_beacon_name(node_id: bytes) -> str:
+    """Deterministic, effectively-unique friendly name for a beacon from its id."""
+    a = _ADJ[node_id[0] % len(_ADJ)]
+    n = _NOUN[node_id[1] % len(_NOUN)]
+    return f"beacon-{a}-{n}-{node_id.hex()[:4]}"
+
+
 BEACON_TTL_S = 90.0          # drop a beacon we haven't re-heard an advert for in this long
 REACHABLE_TTL_S = 45.0       # "reachable" decays faster than mere existence: a beacon stays
                              # KNOWN via gossip while its direct pong goes quiet (firewall
@@ -134,6 +152,18 @@ class BeaconRegistry:
         return [info.blob for info in self.beacons.values()]
 
     @staticmethod
+    def display_endpoint(host: str, gossip_port: int, url: str) -> str:
+        """The gossip endpoint to SHOW a human: prefer the beacon's domain (parsed
+        from its advertised status url) over the raw IP when it has one, since the
+        domain resolves to the same host and reads far better — e.g.
+        'beacon.swarmint.org:9001' for the genesis, '34.132.137.213:9001' for a
+        bare-IP peer. (The actual gossip dial still uses the IP; this is display.)"""
+        h = host
+        if url:
+            h = url.split("://", 1)[-1].split("/", 1)[0].split(":")[0] or host
+        return f"{h}:{gossip_port}"
+
+    @staticmethod
     def status_url(host: str, http_port: int, url: str) -> str:
         """The clickable URL for this beacon's status page, or "" if it doesn't
         run one. An explicit `url` (domain+TLS, e.g. the genesis's) always wins;
@@ -156,6 +186,7 @@ class BeaconRegistry:
                 "reachable": info.reachable, "age_s": now - info.seen_at,
                 "same_space": info.space_fp == self.own_fp,
                 "status_url": self.status_url(info.host, info.http_port, info.url),
+                "endpoint": self.display_endpoint(info.host, info.gossip_port, info.url),
             })
         out.sort(key=lambda b: (not b["reachable"], b["age_s"]))
         return out

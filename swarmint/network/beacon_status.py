@@ -60,6 +60,12 @@ def snapshot(net, start_time: float, now: float) -> dict:
             nat = "behind NAT"
         else:
             nat = "public"
+        # "directly reachable" = a public peer (no NAT remap, so we dial it straight)
+        # OR one we opened a hole-punched path to. Only a peer we can neither reach
+        # directly nor punch actually needs relaying — the old logic marked every
+        # non-punched peer as "via relay/none", which mislabeled ordinary public
+        # backbone nodes (reachable directly, never punched) as relay-only.
+        direct = (nid in reachable) or (nat == "public")
         peers.append({
             "id": nid.hex(),
             "advertised": f"{advertised[0]}:{advertised[1]}" if advertised else "-",
@@ -69,6 +75,7 @@ def snapshot(net, start_time: float, now: float) -> dict:
             "age_s": age,
             "active": (age is not None and age <= ACTIVE_WINDOW_S),
             "punched": nid in reachable,
+            "direct": direct,
         })
     peers.sort(key=lambda p: (not p["active"], p["age_s"] if p["age_s"] is not None else 1e9))
     # Beacon federation (if this beacon participates): the directory of OTHER
@@ -234,7 +241,7 @@ window.__INITIAL__ = /*__INITIAL__*/null;
     var nat = row.querySelector(".nat");
     setClass(nat, "pill " + (p.nat === "public" ? "nat-public" : p.nat === "behind NAT" ? "nat-nat" : "nat-unknown"));
     setText(nat, p.nat);
-    setText(row.querySelector(".dir"), p.punched ? "\\u2713 direct" : "via relay/none");
+    setText(row.querySelector(".dir"), p.direct ? (p.punched ? "\\u2713 punched" : "\\u2713 direct") : "via relay");
     setText(row.querySelector(".top"), (p.topics && p.topics.length) ? p.topics.join(",") : "\\u2014");
     row.dataset.age = (p.age_s == null ? "" : p.age_s);
     setText(row.querySelector(".age"), fmtAgo(p.age_s));
@@ -251,8 +258,8 @@ window.__INITIAL__ = /*__INITIAL__*/null;
       else { idc.removeAttribute("href"); idc.classList.add("nolink"); idc.title = ""; }
     }
     setText(row.querySelector(".nm"), b.name || "\\u2014");
-    setText(row.querySelector(".ep"), b.host + ":" + b.gossip_port);
-    setText(row.querySelector(".tk"), b.task || "\\u2014");
+    setText(row.querySelector(".ep"), b.endpoint || (b.host + ":" + b.gossip_port));
+    setText(row.querySelector(".tk"), (b.task || "\\u2014") + (b.n_classes ? " \\u00b7 " + b.n_classes + " cls" : "") + (b.same_space ? "" : " \\u00b7 other space"));
     var re = row.querySelector(".re");
     setClass(re, "pill " + (b.reachable ? "nat-public" : "nat-unknown"));
     setText(re, b.reachable ? "\\u2713 reachable" : "unverified");
