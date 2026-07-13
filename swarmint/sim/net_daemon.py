@@ -96,6 +96,15 @@ async def main() -> int:
     http_port = int(_env("SWARM_HTTP_PORT", "0"))  # rendezvous status page; 0 = off
     http_bind = _env("SWARM_HTTP_BIND", "0.0.0.0")  # bind 127.0.0.1 when a TLS proxy fronts it
 
+    # Beacon federation (rendezvous role only): join the decentralized directory of
+    # beacons. A community beacon registers with a hub (default: the public master)
+    # so operators can confirm reachability; the master itself has no hub above it.
+    federate = _env("SWARM_FEDERATION", "0") == "1"
+    master_host = _env("SWARM_MASTER_HOST") or None
+    master_id_hex = _env("SWARM_MASTER_ID") or None
+    master_gossip_port = int(_env("SWARM_MASTER_GOSSIP_PORT", "9001"))
+    beacon_name = _env("SWARM_BEACON_NAME", "") or ""
+
     identity = _identity_from_seed(seed)
     rng = random.Random(1000 + seed)
     np_rng = np.random.default_rng(7 * seed + 1)
@@ -112,10 +121,26 @@ async def main() -> int:
     else:  # deterministic 2-class slice per node when unset
         my_classes = sorted({(seed * 2) % n_classes, (seed * 2 + 1) % n_classes})
 
+    # Resolve the federation hub (if any). If it resolves to our OWN id we are the
+    # hub — register with no one, just aggregate + gossip (no center above us).
+    fed_master_id = fed_master_addr = None
+    if federate and role == "rendezvous" and master_host and master_id_hex:
+        mid = bytes.fromhex(master_id_hex)
+        if mid != identity.node_id:
+            fed_master_id = mid
+            fed_master_addr = (socket.gethostbyname(master_host), master_gossip_port)
+
+    from ..network.federation import space_fingerprint
+    space_fp = space_fingerprint(task_name, n_classes, embedding=task.embedding,
+                                 dim=dim, world_seed=world_seed)
+
     net = NetNode(identity=identity, topic=1, rng=rng, n_classes=n_classes,
                   gossip_interval=gossip_interval, gossip_sample_size=12,
                   enable_relay=enable_relay, embedding=task.embedding,
-                  radii=(task.radii or None))
+                  radii=(task.radii or None),
+                  enable_federation=(federate and role == "rendezvous"),
+                  beacon_task=task_name, beacon_name=beacon_name, beacon_space_fp=space_fp,
+                  federation_master_id=fed_master_id, federation_master_addr=fed_master_addr)
 
     def feed():
         return task.feed(my_classes, np_rng)
@@ -138,6 +163,11 @@ async def main() -> int:
         _log("rendezvous_up", node_id=identity.node_id.hex(),
              gossip=f"{public_host or advertise}:{net.bus.bound_port}",
              dht=f"{public_host or advertise}:{dht_port}")
+        if net.federation is not None:
+            _log("federation", enabled=True,
+                 role=("hub" if fed_master_id is None else "member"),
+                 master=(master_host if fed_master_id is not None else "-"),
+                 name=beacon_name or "-", task=task_name)
         if http_port:
             from ..network import beacon_status
             status_server = await beacon_status.serve(net, http_bind, http_port, time.time())

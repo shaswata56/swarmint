@@ -149,6 +149,66 @@ def unpack_advert(data: bytes) -> dict:
             "topics": list(body["topics"]), "ts": body["ts"]}
 
 
+# ---- beacon federation: signed beacon advert + gossip transport + reach probe ----
+#
+# A BEACON advert is distinct from a peer `advert`: it describes a whole
+# rendezvous/relay (a "brain region") — its dial-able public host, BOTH ports, the
+# task/space its local swarm runs, and an optional human label — carrying exactly
+# what a node on one beacon would need to reach the swarm on another (the seam for
+# cross-beacon "one singular system" traffic). It is signed with the beacon's
+# identity (sign_envelope), so a forwarding beacon can never fabricate or alter a
+# peer beacon's advert: every recipient re-verifies the origin signature itself.
+
+def pack_beacon_advert(node_id: bytes, host: str, gossip_port: int, dht_port: int,
+                       task: str, n_classes: int, topics, name: str, ts: float,
+                       space_fp: str = "") -> bytes:
+    # space_fp: a fingerprint of the shared embedding SPACE this beacon's swarm
+    # lives in. Cross-beacon learning is only coherent between beacons with the
+    # SAME fingerprint (identical genesis space) — otherwise B's prototype vectors
+    # are meaningless to A. Empty string => unknown/legacy (never auto-bridged).
+    topic_list = [int(topics)] if isinstance(topics, int) else sorted(int(t) for t in topics)
+    return _pack({"v": WIRE_VERSION, "k": "beacon_advert", "id": node_id, "host": host,
+                  "gp": int(gossip_port), "dp": int(dht_port), "task": task,
+                  "nc": int(n_classes), "topics": topic_list, "name": name,
+                  "fp": space_fp, "ts": float(ts)})
+
+
+def unpack_beacon_advert(data: bytes) -> dict:
+    body = _unpack(data)
+    assert body["k"] == "beacon_advert"
+    return {"node_id": body["id"], "host": body["host"], "gossip_port": body["gp"],
+            "dht_port": body["dp"], "task": body["task"], "n_classes": body["nc"],
+            "topics": list(body["topics"]), "name": body.get("name", ""),
+            "space_fp": body.get("fp", ""), "ts": body["ts"]}
+
+
+def pack_beacon_gossip(payload: dict) -> bytes:
+    """Transport for one or more SIGNED beacon-advert envelopes (opaque blobs,
+    like `relay`): registration carries the sender's own, gossip carries the set
+    it knows. Recipients verify each blob independently. A dict payload so
+    UdpBus's prototype list-chunker leaves it alone."""
+    return _pack({"v": WIRE_VERSION, "k": "beacon_gossip", "blobs": list(payload["blobs"])})
+
+
+def unpack_beacon_gossip(data: bytes) -> dict:
+    body = _unpack(data)
+    assert body["k"] == "beacon_gossip"
+    return {"blobs": list(body["blobs"])}
+
+
+def pack_beacon_ping(payload: dict) -> bytes:
+    """Reachability probe to a beacon's ADVERTISED address — the live proof its
+    public host+port actually accepts inbound (NAT/firewall correct). op = ping|pong."""
+    return _pack({"v": WIRE_VERSION, "k": "beacon_ping", "op": payload["op"],
+                  "nonce": payload["nonce"]})
+
+
+def unpack_beacon_ping(data: bytes) -> dict:
+    body = _unpack(data)
+    assert body["k"] == "beacon_ping"
+    return {"op": body["op"], "nonce": body["nonce"]}
+
+
 def pack_pex(peers: list) -> bytes:
     """peers: list of (node_id: bytes, addr: str, topics: iterable[int])."""
     out = []

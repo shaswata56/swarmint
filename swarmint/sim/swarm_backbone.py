@@ -45,6 +45,24 @@ def _log(event: str, **kv) -> None:
     print(f"EVENT {event} {parts}".rstrip(), flush=True)
 
 
+def backbone_addrs(n: int, public_host: str, base_port: int = 9003,
+                   seed_base: int = 1000) -> list:
+    """Reconstruct every backbone node's deterministic (node_id, (host, port)),
+    with NO DHT lookup — the single-task analogue of multimodal's expert_addrs().
+
+    Both identity AND port are pure functions of (seed_base, base_port, index),
+    exactly as run_backbone lays them out: node i uses identity seed
+    ``seed_base + i`` and gossip port ``base_port + i``. A one-shot query client
+    can therefore build the whole address book locally and hand it straight to
+    the bus, depending on neither PEX (random-tick luck) nor the DHT (which does
+    not reliably scale to a cold co-located cohort on a small VM — decision
+    #050) to find a backbone whose layout is already deterministic. This is the
+    same "seed the address directly, don't wait on a flaky lookup" principle that
+    fixed the joiner's DHT-bootstrap fragility on cellular (#043)."""
+    return [(_identity_from_seed(seed_base + i).node_id, (public_host, base_port + i))
+            for i in range(n)]
+
+
 async def run_backbone(*, beacon_host: str, beacon_id_hex: str, n: int = 8,
                        base_port: int = 9003, dht_base_port: int = 9103,
                        beacon_gossip_port: int = 9001, beacon_dht_port: int = 9002,

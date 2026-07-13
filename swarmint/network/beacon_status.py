@@ -71,12 +71,20 @@ def snapshot(net, start_time: float, now: float) -> dict:
             "punched": nid in reachable,
         })
     peers.sort(key=lambda p: (not p["active"], p["age_s"] if p["age_s"] is not None else 1e9))
+    # Beacon federation (if this beacon participates): the directory of OTHER
+    # beacons it knows, each with live reachability. Same soft-state every beacon
+    # holds, so this table looks the same viewed from any beacon in the mesh.
+    federation = []
+    if getattr(net, "federation", None) is not None:
+        federation = net.federation.registry.snapshot(now)
     return {
         "beacon_id": net.identity.node_id.hex(),
         "uptime_s": now - start_time,
         "n_total": len(peers),
         "n_active": sum(1 for p in peers if p["active"]),
         "peers": peers,
+        "federation": federation,
+        "n_beacons_reachable": sum(1 for b in federation if b["reachable"]),
     }
 
 
@@ -106,6 +114,40 @@ def render_html(snap: dict) -> str:
     body_rows = "\n".join(rows) or (
         "<tr><td colspan='7' class='empty'>No peers have contacted the beacon yet. "
         "Start a node pointed at this rendezvous and it will appear here.</td></tr>")
+
+    # ---- federated beacons section (only rendered if this beacon federates) ----
+    fed_section = ""
+    if snap.get("federation") is not None and "n_beacons_reachable" in snap:
+        frows = []
+        for b in snap["federation"]:
+            up_cls = "nat-public" if b["reachable"] else "nat-unknown"
+            up_txt = "✓ reachable" if b["reachable"] else "unverified"
+            frows.append(
+                f"<tr>"
+                f"<td class='mono'>{esc(b['id'][:16])}…</td>"
+                f"<td>{esc(b['name'] or '—')}</td>"
+                f"<td class='mono'>{esc(b['host'])}:{esc(b['gossip_port'])}</td>"
+                f"<td>{esc(b['task'] or '—')}</td>"
+                f"<td><span class='pill {up_cls}'>{up_txt}</span></td>"
+                f"<td>{esc(_fmt_ago(b['age_s']))}</td>"
+                f"</tr>")
+        frows = "\n".join(frows) or (
+            "<tr><td colspan='6' class='empty'>No other beacons known yet. Point a beacon "
+            "at this one with <code>--master</code> and it will appear here once reachable.</td></tr>")
+        fed_section = f"""
+  <h2 style="font-size:16px;margin:34px 0 6px;letter-spacing:-.01em;">Federated beacons</h2>
+  <p class="sub" style="margin-bottom:14px;">Other beacons in the mesh — a decentralized,
+  gossiped directory (no central registry). “reachable” means this beacon confirmed the other's
+  advertised address answers a signed probe. Same view from every beacon.</p>
+  <div class="tblwrap"><table>
+    <thead><tr>
+      <th>beacon id</th><th>name</th><th>advertised endpoint</th>
+      <th>task</th><th>reachability</th><th>last seen</th>
+    </tr></thead>
+    <tbody>
+{frows}
+    </tbody>
+  </table></div>"""
 
     up = _fmt_ago(snap["uptime_s"]).replace(" ago", "")
     return f"""<!doctype html>
@@ -157,6 +199,7 @@ def render_html(snap: dict) -> str:
     <div class="card hi"><div class="n">{snap['n_active']}</div><div class="l">active peers</div></div>
     <div class="card"><div class="n">{snap['n_total']}</div><div class="l">known peers</div></div>
     <div class="card"><div class="n">{esc(up)}</div><div class="l">beacon uptime</div></div>
+    {(f'<div class="card"><div class="n">{snap["n_beacons_reachable"]}</div><div class="l">federated beacons</div></div>') if snap.get("federation") is not None else ""}
   </div>
   <div class="tblwrap"><table>
     <thead><tr>
@@ -167,6 +210,7 @@ def render_html(snap: dict) -> str:
 {body_rows}
     </tbody>
   </table></div>
+{fed_section}
   <footer>
     beacon <code class="mono">{esc(snap['beacon_id'][:16])}…</code> ·
     “public endpoint” is the post-NAT address the beacon observes packets arriving from ·
@@ -188,7 +232,16 @@ async def serve(net, host: str, port: int, start_time: float) -> asyncio.Abstrac
                     break
             parts = request_line.decode("latin-1", "replace").split()
             method, path = (parts[0], parts[1]) if len(parts) >= 2 else ("GET", "/")
-            if method != "GET" or path not in ("/", "/index.html"):
+            if method == "GET" and path.split("?")[0] == "/federation.json":
+                import json
+                snap = snapshot(net, start_time, time.time())
+                payload = json.dumps({"beacon_id": snap["beacon_id"],
+                                      "n_beacons_reachable": snap.get("n_beacons_reachable", 0),
+                                      "federation": snap.get("federation", [])}).encode("utf-8")
+                writer.write(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                             b"Content-Length: %d\r\nCache-Control: no-store\r\n"
+                             b"Connection: close\r\n\r\n" % len(payload) + payload)
+            elif method != "GET" or path not in ("/", "/index.html"):
                 payload = b"not found"
                 writer.write(b"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n"
                              b"Content-Length: %d\r\nConnection: close\r\n\r\n%s"

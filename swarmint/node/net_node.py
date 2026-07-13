@@ -29,6 +29,7 @@ from .swarm_node import SwarmNode
 
 PEX_EVERY_N_ROUNDS = 5  # send our known-peer list to a random peer this often
 CHECKPOINT_EVERY_N_ROUNDS = 3  # append a signed model checkpoint to the hash-chain (D1)
+FEDERATION_EVERY_N_ROUNDS = 8  # re-advert + gossip the beacon directory + re-probe reachability
 
 
 @dataclass
@@ -55,15 +56,25 @@ class NetNode:
                                   # override_trust). None -> synthetic defaults (unchanged).
     data_feed: object = None  # () -> (x, y) | None
 
+    # --- beacon federation (opt-in; only a rendezvous/beacon turns this on) ---
+    enable_federation: bool = False   # participate in the decentralized beacon directory
+    beacon_task: str = ""             # task/space this beacon's local swarm runs (advertised)
+    beacon_name: str = ""             # optional human label for the directory
+    beacon_space_fp: str = ""         # shared-space fingerprint; only same-fp beacons cross-learn
+    federation_master_id: bytes = None    # hub to register with (None => we ARE a/the hub)
+    federation_master_addr: tuple = None   # (host, gossip_port) of that hub
+
     bus: UdpBus = field(default=None, init=False)
     discovery: Discovery = field(default=None, init=False)
     node: SwarmNode = field(default=None, init=False)
     runner: NodeRunner = field(default=None, init=False)
     inference: object = field(default=None, init=False)
+    federation: object = field(default=None, init=False)
     chain: UpdateChain = field(default=None, init=False)
     nat: HolePuncher = field(default=None, init=False)
     _pex_tick: int = field(default=0, init=False)
     _last_ckpt_counter: int = field(default=-1, init=False)
+    _did_register: bool = field(default=False, init=False)
 
     async def start(self, host: str, gossip_port: int, dht_port: int,
                     bootstrap_dht_addrs: list, rendezvous_id: bytes = None,
@@ -109,6 +120,35 @@ class NetNode:
         self.bus.register_kind("emb_req", pack_embedding_request, unpack_embedding_request)
         self.bus.register_kind("emb_resp", pack_embedding_response, unpack_embedding_response)
 
+        if self.enable_federation:
+            from ..network.federation import FederationService
+            from ..network.wire import (pack_beacon_gossip, pack_beacon_ping,
+                                        unpack_beacon_gossip, unpack_beacon_ping)
+            self.bus.register_kind("beacon_gossip", pack_beacon_gossip, unpack_beacon_gossip)
+            self.bus.register_kind("beacon_ping", pack_beacon_ping, unpack_beacon_ping)
+            topics = sorted(self.topics) if self.topics else [self.topic]
+            own = {"host": advertise_host, "gossip_port": self.bus.bound_port,
+                   "dht_port": dht_port, "task": self.beacon_task, "n_classes": self.n_classes,
+                   "topics": topics, "name": self.beacon_name, "space_fp": self.beacon_space_fp}
+
+            def _bridge_beacon(nid, addr):
+                # Cross-beacon learning: make the compatible peer beacon a gossip
+                # peer AND introduce our local swarm to it via a directed PEX, so
+                # the two node populations interconnect and the >=3-sender
+                # corroboration quorum is met across the union (not just between
+                # the two hub cells). All prototype flow rides the existing signed
+                # gossip/merge path — no new learning code, defenses intact.
+                self.bus.peer_addrs[nid] = addr
+                if nid not in self.node.peers:
+                    self.node.peers.append(nid)
+                self.bus.send(Message(self.identity.node_id, nid, "pex",
+                                      self.discovery.pex_payload()))
+
+            self.federation = FederationService(
+                self.identity, self.bus, own,
+                master_id=self.federation_master_id, master_addr=self.federation_master_addr,
+                on_bridge=_bridge_beacon)
+
         base_dispatch = self.bus._handler
 
         def dispatch(msg: Message) -> None:
@@ -145,6 +185,9 @@ class NetNode:
                 self._on_embedding_request(msg)
             elif msg.kind == "emb_resp":
                 self._on_embedding_response(msg)
+            elif msg.kind in ("beacon_gossip", "beacon_ping"):
+                if self.federation is not None:
+                    self.federation.dispatch(msg)
             else:
                 base_dispatch(msg)
 
@@ -190,6 +233,14 @@ class NetNode:
                     and self.node.model.version.counter != self._last_ckpt_counter):
                 self.chain.checkpoint(self.node.model.version, self.node.model.protos)
                 self._last_ckpt_counter = self.node.model.version.counter
+            # Beacon federation: register with the hub once (as soon as we have a
+            # send path), then periodically re-advert / gossip the directory / probe.
+            if self.federation is not None:
+                if not self._did_register:
+                    self.federation.register_with_master(time.time())
+                    self._did_register = True
+                if self._pex_tick % FEDERATION_EVERY_N_ROUNDS == 0:
+                    self.federation.tick(self.rng, time.time())
             sample = self.data_feed() if self.data_feed is not None else None
             if sample is not None and self.embedding is not None:
                 x, y = sample                     # map raw input into the SHARED embedded space

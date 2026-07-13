@@ -41,7 +41,13 @@ SWARM_HTTP_BIND=127.0.0.1
 SWARM_ENABLE_RELAY=1
 SWARM_DURATION_S=0
 SWARM_TASK=${SWARM_TASK:-digits}
+SWARM_FEDERATION=1
+SWARM_BEACON_NAME=master
 EOF
+# SWARM_FEDERATION=1: this beacon is the federation HUB. Since its own id equals
+# the default --master-id (seed-0 => 8c30c97e...), net_daemon detects self-as-hub
+# and registers with no one — it just aggregates + gossips the beacon directory.
+# Community beacons run `swarmint beacon` (federating with this hub by default).
 # SWARM_PUBLIC_HOST: bind 0.0.0.0 but ADVERTISE the public IP (1:1 cloud NAT).
 # Status page binds 127.0.0.1:8080 — Caddy (below) fronts it with HTTPS on 443.
 

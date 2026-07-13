@@ -100,11 +100,49 @@ def cmd_beacon(args) -> int:
         SWARM_HTTP_PORT=(args.http_port or None),
         SWARM_ENABLE_RELAY="1",
         SWARM_TASK=args.task,
+        # Beacon federation: by default a community beacon joins the global mesh by
+        # registering with the public master, so its operator can confirm reachability
+        # from the master's (and its own) status page. --no-federate opts out.
+        SWARM_FEDERATION=("0" if args.no_federate else "1"),
+        SWARM_MASTER_HOST=(None if args.no_federate else args.master),
+        SWARM_MASTER_ID=(None if args.no_federate else args.master_id),
+        SWARM_MASTER_GOSSIP_PORT=(None if args.no_federate else args.master_gossip_port),
+        SWARM_BEACON_NAME=(args.name or None),
     )
     print(f"swarmint: hosting a beacon (seed {args.seed}); node_id is deterministic "
           f"from the seed. Others join with:\n"
           f"  swarmint join --beacon <this-host> --beacon-id <node_id>\n")
+    if not args.no_federate:
+        print(f"swarmint: federating with {args.master} — run with --http-port to see the "
+              f"beacon directory, or check the master's page to confirm this beacon is reachable.\n")
     return _run_net_daemon()
+
+
+def cmd_beacons(args) -> int:
+    """List the beacon federation as seen by a beacon's /federation.json (default:
+    the public master over HTTPS; --url for a local/plain-HTTP beacon)."""
+    import json
+    import urllib.request
+    url = args.url or f"https://{args.beacon}/federation.json"
+    try:
+        with urllib.request.urlopen(url, timeout=10) as r:  # noqa: S310
+            data = json.loads(r.read().decode("utf-8", "replace"))
+    except Exception as e:
+        print(f"swarmint: could not reach {url}: {e}", file=sys.stderr)
+        return 1
+    fed = data.get("federation", [])
+    print(f"beacon {data.get('beacon_id', '?')[:16]}.. knows {len(fed)} beacon(s), "
+          f"{data.get('n_beacons_reachable', 0)} reachable:\n")
+    if not fed:
+        print("  (no other beacons known yet)")
+        return 0
+    print(f"  {'reach':<7} {'name':<16} {'endpoint':<24} {'task':<10} beacon-id")
+    for b in fed:
+        reach = "up" if b["reachable"] else "-"
+        endpoint = f"{b['host']}:{b['gossip_port']}"
+        print(f"  {reach:<7} {(b['name'] or '-'):<16} {endpoint:<24} "
+              f"{(b['task'] or '-'):<10} {b['id'][:16]}..")
+    return 0
 
 
 def cmd_backbone(args) -> int:
@@ -172,6 +210,21 @@ def cmd_multimodal_query(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_infer(args) -> int:
+    """One-shot: join the beacon, reconstruct the digits backbone's deterministic
+    addresses, embed a query digit through the shared genesis, fan out with the
+    trust-ranked InferenceService, and print the swarm's answer + every expert's
+    vote — then exit (no long-running learning node)."""
+    import asyncio
+    from .sim.infer_query import _print_report, run_infer
+    res = asyncio.run(run_infer(
+        beacon_host=args.beacon, beacon_id_hex=args.beacon_id, n=args.n,
+        backbone_public_host=args.backbone_public_host,
+        backbone_base_port=args.backbone_base_port, settle_s=args.settle, timeout=args.timeout,
+        index=args.index, image_path=args.image, eval_n=args.eval_n))
+    return _print_report(res)
+
+
 def cmd_status(args) -> int:
     import urllib.request
     url = f"https://{args.beacon}/"
@@ -220,7 +273,20 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--duration", type=int, default=0, help="seconds to run (0 = forever)")
     b.add_argument("--task", default="digits", choices=["digits", "synthetic"],
                    help="what the swarm learns (default: real sklearn digits)")
+    b.add_argument("--name", default=None, help="human label for this beacon in the directory")
+    b.add_argument("--master", default=BEACON_HOST,
+                   help=f"federation hub to register with (default {BEACON_HOST})")
+    b.add_argument("--master-id", default=BEACON_NODE_ID, help="hub node_id (hex)")
+    b.add_argument("--master-gossip-port", type=int, default=BEACON_GOSSIP_PORT)
+    b.add_argument("--no-federate", action="store_true",
+                   help="run standalone; do not join the beacon federation")
     b.set_defaults(func=cmd_beacon)
+
+    bcs = sub.add_parser("beacons", help="list the beacon federation (directory of beacons)")
+    bcs.add_argument("--beacon", default=BEACON_HOST, help="beacon whose directory to read (HTTPS)")
+    bcs.add_argument("--url", default=None,
+                     help="explicit /federation.json URL (e.g. a local http://host:port beacon)")
+    bcs.set_defaults(func=cmd_beacons)
 
     bb = sub.add_parser("backbone",
                         help="run an always-on honest backbone so joiners have a learning quorum")
@@ -273,6 +339,22 @@ def build_parser() -> argparse.ArgumentParser:
                     help="backbone's advertised host (default: same as --beacon)")
     mq.add_argument("--backbone-base-port", type=int, default=9401)
     mq.set_defaults(func=cmd_multimodal_query)
+
+    inf = sub.add_parser("infer",
+                         help="ask the live swarm to classify a digit (one-shot, no learning node)")
+    inf.add_argument("--beacon", default=BEACON_HOST)
+    inf.add_argument("--beacon-id", default=BEACON_NODE_ID)
+    inf.add_argument("--n", type=int, default=8, help="backbone size (must match the deployment)")
+    inf.add_argument("--index", type=int, default=None, help="held-out test digit index (default 0)")
+    inf.add_argument("--image", default=None, help="file of 64 raw pixels (8x8 sklearn digit)")
+    inf.add_argument("--eval", type=int, default=None, dest="eval_n",
+                     help="classify the first N held-out digits and report live accuracy")
+    inf.add_argument("--settle", type=float, default=3.0, help="seconds to let the join settle")
+    inf.add_argument("--timeout", type=float, default=1.0, help="per-expert query timeout, seconds")
+    inf.add_argument("--backbone-public-host", default=None,
+                     help="backbone advertised host (default: same as --beacon)")
+    inf.add_argument("--backbone-base-port", type=int, default=9003)
+    inf.set_defaults(func=cmd_infer)
 
     st = sub.add_parser("status", help="print the live beacon status")
     st.add_argument("--beacon", default=BEACON_HOST)

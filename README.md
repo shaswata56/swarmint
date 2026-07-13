@@ -69,6 +69,29 @@ gradients, no central model. Live status: **https://beacon.swarmint.org**
 > so a joiner always has the ≥3-sender quorum the Byzantine defense requires;
 > without a quorum a lone node correctly stays at its solo ceiling.
 
+## Ask the live swarm a question
+
+You don't have to run a long-lived learning node to use the swarm's knowledge —
+one command classifies a digit against the live backbone and exits:
+
+```bash
+swarmint infer                       # classify a held-out digit; print the swarm's answer
+swarmint infer --eval 40             # accuracy over 40 held-out digits (verified live: 0.925)
+swarmint infer --image mydigit.txt   # classify your own 8x8 digit (64 raw pixels, sklearn scale)
+```
+
+It joins the beacon, reconstructs the backbone's deterministic addresses (no DHT
+wait), embeds the query through the **same frozen genesis** every node shares, fans
+out to all experts with the trust-ranked inference service, and prints the label,
+an aggregate confidence, and every expert's vote. Verified over the real internet
+from a corporate NAT: **37/40 = 0.925**, i.e. the centralized ceiling.
+
+> A transient querier has no local holdout to calibrate peer trust against, so
+> `infer` uses **uniform trust** — aggregation is confidence-weighted plurality
+> with abstention, which is exactly right against the known-honest public backbone.
+> The Byzantine-inference result (0.79 with 30% liars) assumes *calibrated* trust
+> and is a separate claim this front door does not inherit.
+
 ## Quickstart (offline)
 
 ```bash
@@ -84,11 +107,56 @@ python run_tests.py                     # the test suite (plain scripts, no pyte
 ## Host your own swarm
 
 ```bash
-swarmint beacon --public-host <IP> --http-port 8080   # a rendezvous/relay
-swarmint backbone --beacon <IP> --public-host <IP>    # an always-on honest quorum
+swarmint beacon --public-host <IP> --http-port 8080 --name my-beacon   # a rendezvous/relay
+swarmint backbone --beacon <IP> --public-host <IP>                      # an always-on honest quorum
 ```
 See [`deploy/gcp-beacon/`](deploy/gcp-beacon/) for a one-command free-tier GCP
 deployment (systemd + HTTPS status page).
+
+### Beacon federation — one singular system
+
+Your beacon doesn't stand alone. By default `swarmint beacon` **joins the global
+federation**: it registers with the public master beacon (a well-known hub, *not*
+an authority), which verifies your beacon is genuinely reachable by probing its
+advertised address, then gossips it into a decentralized, signed directory that
+every beacon replicates. Think of each beacon as a specialized brain region and the
+directory as the white-matter tracts connecting them — kill the master and the map
+survives, because every beacon holds it.
+
+```bash
+swarmint beacons                 # list the federation from the public master
+swarmint beacons --url http://localhost:8080/federation.json   # ...or your own beacon
+```
+
+You confirm your setup works by seeing your beacon appear **reachable** on the
+master's status page (and on your own — the directory is the same everywhere).
+Beacon adverts are signed with each beacon's Ed25519 key, so the hub can neither
+forge nor alter a beacon it relays, and only genuinely-reachable beacons are listed
+(anti-Sybil). Run standalone with `--no-federate`.
+
+#### Cross-beacon learning — N beacons, one swarm
+
+Federated beacons don't just *see* each other — if they share the same embedding
+space (the advert carries a space fingerprint), they **learn as one system**. Two
+compatible, reachable beacons bridge: each becomes a gossip peer of the other and
+introduces its local swarm via a directed peer-exchange, so the two node
+populations interconnect and prototypes flow across the boundary — over the exact
+same signed-gossip + order-invariant-merge path used within one swarm, so trust,
+the ≥3-sender corroboration quorum, and conflict rejection all stay intact. A
+beacon whose swarm only ever saw half the classes ends up covering all of them,
+learned entirely from its peer beacon's swarm. Different-space beacons still coexist
+in the directory as separate regions (the path to cross-modal fusion), they just
+don't cross-learn.
+
+```bash
+python -m swarmint.sim.run_cross_beacon   # two beacons, disjoint class halves -> one full model
+```
+
+Biologically: each beacon is a specialized region; the federation is the tract map;
+bridging is inter-regional projection. Wire the regions and the halves become one
+integrated model — no coordinator, no central model, just prototypes crossing signed
+links. Verified over real UDP: two beacons each covering 3 of 6 classes converge to
+all 6 (0.5 → 1.0) within seconds of bridging.
 
 `python benchmark.py` is the fastest way to verify the project does what it
 claims: it runs the federation, Byzantine-suppression, distributed-inference,
