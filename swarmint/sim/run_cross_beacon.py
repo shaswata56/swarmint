@@ -38,7 +38,7 @@ def _log(event, **kv):
     print(f"EVENT {event} " + " ".join(f"{k}={v}" for k, v in kv.items()), flush=True)
 
 
-async def _beacon(host, gport, dport, *, seed, fp, n_classes, task, classes, master=None):
+async def _beacon(host, gport, dport, *, seed, fp, n_classes, task, classes, genesis=None):
     """A federating beacon (rendezvous) that ALSO learns its side's classes — like
     the live deployment ("the rendezvous learns too, so gossip has content"). It
     needs its own data to build a holdout; without one a node cannot validate (and
@@ -49,9 +49,9 @@ async def _beacon(host, gport, dport, *, seed, fp, n_classes, task, classes, mas
                   gossip_interval=0.3, gossip_sample_size=16, enable_relay=True,
                   embedding=task.embedding, radii=(task.radii or None),
                   enable_federation=True, beacon_task="synthetic",
-                  beacon_name=("A" if master is None else "B"), beacon_space_fp=fp,
-                  federation_master_id=(master[0] if master else None),
-                  federation_master_addr=(master[1] if master else None))
+                  beacon_name=("A" if genesis is None else "B"), beacon_space_fp=fp,
+                  federation_genesis_id=(genesis[0] if genesis else None),
+                  federation_genesis_addr=(genesis[1] if genesis else None))
 
     def feed(_cls=classes, _rng=np_rng):
         return task.feed(_cls, _rng)
@@ -94,12 +94,12 @@ async def run(*, host="127.0.0.1", base_port=9601, n_classes=6, per_side=3,
         loop.default_exception_handler(ctx)
     asyncio.get_running_loop().set_exception_handler(_quiet)
 
-    # --- two beacons; B federates with A (the hub) ---
+    # --- two peer beacons; B bootstraps from A (genesis), then they're equals ---
     a_id, beacon_a = await _beacon(host, base_port, base_port + 1, seed=1, fp=fp,
                                    n_classes=n_classes, task=task, classes=left)
     b_id, beacon_b = await _beacon(host, base_port + 2, base_port + 3, seed=2, fp=fp,
                                    n_classes=n_classes, task=task, classes=right,
-                                   master=(a_id.node_id, (host, base_port)))
+                                   genesis=(a_id.node_id, (host, base_port)))
     _log("beacons_up", A=a_id.node_id.hex()[:8], B=b_id.node_id.hex()[:8], fp=fp[:8])
 
     # --- each side's swarm: per_side workers covering that side's classes fully ---

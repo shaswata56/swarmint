@@ -25,8 +25,8 @@ BACKBONE_N="${3:-0}"
 
 REPO="${REPO:-https://github.com/shaswata56/swarmint.git}"
 DEST="${DEST:-/opt/swarmint}"
-MASTER_HOST="${MASTER_HOST:-beacon.swarmint.org}"
-MASTER_ID="${MASTER_ID:-8c30c97e7fd5460ce3b962db4cd75879eecd8abd}"  # seed-0 hub id
+GENESIS_HOST="${GENESIS_HOST:-beacon.swarmint.org}"       # well-known bootstrap entry point
+GENESIS_ID="${GENESIS_ID:-8c30c97e7fd5460ce3b962db4cd75879eecd8abd}"  # seed-0 genesis id
 GOSSIP_PORT="${GOSSIP_PORT:-9001}"
 DHT_PORT="${DHT_PORT:-9002}"
 BB_BASE_PORT="${BB_BASE_PORT:-9003}"
@@ -67,10 +67,12 @@ sudo python3 -m venv "$DEST/.venv" 2>/dev/null || true
 sudo "$DEST/.venv/bin/pip" install -q --upgrade pip
 sudo "$DEST/.venv/bin/pip" install -q -e "$DEST[net,learn]"
 
-echo ">> writing member-beacon env + systemd unit ..."
+echo ">> writing peer-beacon env + systemd unit ..."
+# A DISTINCT seed (7) is essential: seed 0 => this beacon's node_id would equal the
+# genesis id, and net_daemon would think IT is the genesis and bootstrap from no one.
 sudo tee /etc/swarmint-beacon.env >/dev/null <<EOF
 SWARM_ROLE=rendezvous
-SWARM_SEED=0
+SWARM_SEED=7
 SWARM_ADVERTISE_HOST=0.0.0.0
 SWARM_PUBLIC_HOST=${PUBLIC_IP}
 SWARM_GOSSIP_PORT=${GOSSIP_PORT}
@@ -82,18 +84,14 @@ SWARM_DURATION_S=0
 SWARM_TASK=digits
 SWARM_FEDERATION=1
 SWARM_BEACON_NAME=${NAME}
-SWARM_MASTER_HOST=${MASTER_HOST}
-SWARM_MASTER_ID=${MASTER_ID}
-SWARM_MASTER_GOSSIP_PORT=${GOSSIP_PORT}
+SWARM_GENESIS_HOST=${GENESIS_HOST}
+SWARM_GENESIS_ID=${GENESIS_ID}
+SWARM_GENESIS_GOSSIP_PORT=${GOSSIP_PORT}
 EOF
-# NOTE: this beacon uses SEED=0 too, so its own node_id equals the master id. That
-# is exactly how net_daemon detects "I am NOT the hub only if master_id != my id" —
-# here they'd be equal, so it would wrongly think it's the hub. Use a DISTINCT seed.
-sudo sed -i 's/^SWARM_SEED=0$/SWARM_SEED=7/' /etc/swarmint-beacon.env
 
 sudo tee /etc/systemd/system/swarmint-beacon.service >/dev/null <<EOF
 [Unit]
-Description=swarmint beacon (federation member, cross-learns with the master)
+Description=swarmint beacon (federation peer, cross-learns via the genesis)
 After=network-online.target
 Wants=network-online.target
 
@@ -113,6 +111,9 @@ sudo systemctl enable --now swarmint-beacon.service
 
 if [ "$BACKBONE_N" -gt 0 ]; then
   echo ">> starting a local backbone of ${BACKBONE_N} nodes (own quorum) ..."
+  # The backbone's rendezvous is THIS beacon (seed 7), not the genesis — compute
+  # this beacon's own node_id so the backbone bootstraps to the right local id.
+  LOCAL_ID=$("$DEST/.venv/bin/python" -c "from nacl.signing import SigningKey; from swarmint.network.identity import Identity; print(Identity(SigningKey((7).to_bytes(4,'big').rjust(32,b'\0'))).node_id.hex())")
   sudo tee /etc/systemd/system/swarmint-backbone.service >/dev/null <<EOF
 [Unit]
 Description=swarmint honest backbone (local quorum for this beacon)
@@ -121,7 +122,7 @@ Requires=swarmint-beacon.service
 
 [Service]
 ExecStart=${DEST}/.venv/bin/python -m swarmint.cli backbone \\
-  --beacon 127.0.0.1 --beacon-id 8c30c97e7fd5460ce3b962db4cd75879eecd8abd \\
+  --beacon 127.0.0.1 --beacon-id ${LOCAL_ID} \\
   --n ${BACKBONE_N} --task digits --base-port ${BB_BASE_PORT} \\
   --dht-base-port ${BB_DHT_BASE_PORT} --public-host ${PUBLIC_IP} --bind 0.0.0.0 \\
   --gossip-port ${GOSSIP_PORT} --dht-port ${DHT_PORT}

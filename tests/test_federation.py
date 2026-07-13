@@ -30,12 +30,12 @@ def _advert(idn, host="1.2.3.4", gp=9001, task="digits", ts=100.0):
 def test_beacon_advert_wire_roundtrip():
     idn = _ident(1000)
     body = wire.pack_beacon_advert(idn.node_id, "34.41.60.102", 9001, 9002,
-                                   "digits", 10, {1, 2}, "master", 123.5)
+                                   "digits", 10, {1, 2}, "genesis", 123.5)
     d = wire.unpack_beacon_advert(body)
     assert d["node_id"] == idn.node_id
     assert d["host"] == "34.41.60.102" and d["gossip_port"] == 9001 and d["dht_port"] == 9002
     assert d["task"] == "digits" and d["n_classes"] == 10 and d["topics"] == [1, 2]
-    assert d["name"] == "master" and d["ts"] == 123.5
+    assert d["name"] == "genesis" and d["ts"] == 123.5
     # signed blob verifies + sender matches the advert's own node_id
     blob = idn.sign_envelope(body, 123.5)
     res = verify_envelope(blob, ReplayGuard())

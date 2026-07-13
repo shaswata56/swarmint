@@ -61,8 +61,8 @@ class NetNode:
     beacon_task: str = ""             # task/space this beacon's local swarm runs (advertised)
     beacon_name: str = ""             # optional human label for the directory
     beacon_space_fp: str = ""         # shared-space fingerprint; only same-fp beacons cross-learn
-    federation_master_id: bytes = None    # hub to register with (None => we ARE a/the hub)
-    federation_master_addr: tuple = None   # (host, gossip_port) of that hub
+    federation_genesis_id: bytes = None    # beacon to bootstrap from (None => we ARE the genesis)
+    federation_genesis_addr: tuple = None   # (host, gossip_port) of that bootstrap beacon
 
     bus: UdpBus = field(default=None, init=False)
     discovery: Discovery = field(default=None, init=False)
@@ -136,7 +136,7 @@ class NetNode:
                 # peer AND introduce our local swarm to it via a directed PEX, so
                 # the two node populations interconnect and the >=3-sender
                 # corroboration quorum is met across the union (not just between
-                # the two hub cells). All prototype flow rides the existing signed
+                # the two beacon cells). All prototype flow rides the existing signed
                 # gossip/merge path — no new learning code, defenses intact.
                 self.bus.peer_addrs[nid] = addr
                 if nid not in self.node.peers:
@@ -146,7 +146,7 @@ class NetNode:
 
             self.federation = FederationService(
                 self.identity, self.bus, own,
-                master_id=self.federation_master_id, master_addr=self.federation_master_addr,
+                genesis_id=self.federation_genesis_id, genesis_addr=self.federation_genesis_addr,
                 on_bridge=_bridge_beacon)
 
         base_dispatch = self.bus._handler
@@ -233,11 +233,12 @@ class NetNode:
                     and self.node.model.version.counter != self._last_ckpt_counter):
                 self.chain.checkpoint(self.node.model.version, self.node.model.protos)
                 self._last_ckpt_counter = self.node.model.version.counter
-            # Beacon federation: register with the hub once (as soon as we have a
-            # send path), then periodically re-advert / gossip the directory / probe.
+            # Beacon federation: announce to our bootstrap beacon once (as soon as
+            # we have a send path), then periodically re-advert / gossip the whole
+            # directory / probe — every beacon is a peer, no master.
             if self.federation is not None:
                 if not self._did_register:
-                    self.federation.register_with_master(time.time())
+                    self.federation.announce_to_genesis(time.time())
                     self._did_register = True
                 if self._pex_tick % FEDERATION_EVERY_N_ROUNDS == 0:
                     self.federation.tick(self.rng, time.time())

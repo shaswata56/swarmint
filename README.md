@@ -115,24 +115,27 @@ deployment (systemd + HTTPS status page).
 
 ### Beacon federation — one singular system
 
-Your beacon doesn't stand alone. By default `swarmint beacon` **joins the global
-federation**: it registers with the public master beacon (a well-known hub, *not*
-an authority), which verifies your beacon is genuinely reachable by probing its
-advertised address, then gossips it into a decentralized, signed directory that
-every beacon replicates. Think of each beacon as a specialized brain region and the
-directory as the white-matter tracts connecting them — kill the master and the map
-survives, because every beacon holds it.
+Your beacon doesn't stand alone, and there is **no master**. By default `swarmint
+beacon` **joins the global federation**: it bootstraps from the **genesis beacon**
+(`beacon.swarmint.org` — the well-known DNS entry point, *not* an authority), which
+verifies your beacon is genuinely reachable by probing its advertised address, then
+gossips it into a decentralized, signed directory. **Every beacon holds the full
+directory** — links to all beacons and their swarms — and gossips it peer-to-peer.
+Think of each beacon as a specialized brain region and the directory as the
+white-matter tracts connecting them: kill the genesis and the map survives (every
+beacon holds it; a restarted genesis re-learns it from the others), and a newcomer
+can bootstrap off *any* beacon — the genesis is just the default door.
 
 ```bash
-swarmint beacons                 # list the federation from the public master
-swarmint beacons --url http://localhost:8080/federation.json   # ...or your own beacon
+swarmint beacons                 # list the whole mesh from any beacon (they all hold it)
+swarmint beacons --url http://localhost:8080/federation.json   # ...e.g. your own beacon
 ```
 
-You confirm your setup works by seeing your beacon appear **reachable** on the
-master's status page (and on your own — the directory is the same everywhere).
-Beacon adverts are signed with each beacon's Ed25519 key, so the hub can neither
-forge nor alter a beacon it relays, and only genuinely-reachable beacons are listed
-(anti-Sybil). Run standalone with `--no-federate`.
+You confirm your setup works by seeing your beacon appear **reachable** in the
+directory — the same view from any beacon. Beacon adverts are signed with each
+beacon's Ed25519 key, so no beacon can forge or alter another it relays, and only
+genuinely-reachable beacons are listed (anti-Sybil). Point at a different bootstrap
+beacon with `--genesis`, or run standalone with `--no-federate`.
 
 #### Cross-beacon learning — N beacons, one swarm
 

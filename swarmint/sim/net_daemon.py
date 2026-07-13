@@ -97,12 +97,16 @@ async def main() -> int:
     http_bind = _env("SWARM_HTTP_BIND", "0.0.0.0")  # bind 127.0.0.1 when a TLS proxy fronts it
 
     # Beacon federation (rendezvous role only): join the decentralized directory of
-    # beacons. A community beacon registers with a hub (default: the public master)
-    # so operators can confirm reachability; the master itself has no hub above it.
+    # beacons. No master — every beacon holds the full directory and gossips it. A
+    # new beacon bootstraps from the GENESIS (default: beacon.swarmint.org, the
+    # well-known entry point) or from any beacon it's pointed at; the genesis itself
+    # has no beacon above it. SWARM_GENESIS_* is accepted (SWARM_MASTER_* kept as a
+    # deprecated alias so any older config still boots).
     federate = _env("SWARM_FEDERATION", "0") == "1"
-    master_host = _env("SWARM_MASTER_HOST") or None
-    master_id_hex = _env("SWARM_MASTER_ID") or None
-    master_gossip_port = int(_env("SWARM_MASTER_GOSSIP_PORT", "9001"))
+    genesis_host = _env("SWARM_GENESIS_HOST") or _env("SWARM_MASTER_HOST") or None
+    genesis_id_hex = _env("SWARM_GENESIS_ID") or _env("SWARM_MASTER_ID") or None
+    genesis_gossip_port = int(_env("SWARM_GENESIS_GOSSIP_PORT")
+                              or _env("SWARM_MASTER_GOSSIP_PORT", "9001"))
     beacon_name = _env("SWARM_BEACON_NAME", "") or ""
 
     identity = _identity_from_seed(seed)
@@ -121,14 +125,15 @@ async def main() -> int:
     else:  # deterministic 2-class slice per node when unset
         my_classes = sorted({(seed * 2) % n_classes, (seed * 2 + 1) % n_classes})
 
-    # Resolve the federation hub (if any). If it resolves to our OWN id we are the
-    # hub — register with no one, just aggregate + gossip (no center above us).
-    fed_master_id = fed_master_addr = None
-    if federate and role == "rendezvous" and master_host and master_id_hex:
-        mid = bytes.fromhex(master_id_hex)
-        if mid != identity.node_id:
-            fed_master_id = mid
-            fed_master_addr = (socket.gethostbyname(master_host), master_gossip_port)
+    # Resolve the bootstrap (genesis) beacon, if any. If it resolves to our OWN id
+    # we ARE the genesis — bootstrap from no one, just gossip the directory (no
+    # center above us; peers still bootstrap FROM us).
+    fed_genesis_id = fed_genesis_addr = None
+    if federate and role == "rendezvous" and genesis_host and genesis_id_hex:
+        gid = bytes.fromhex(genesis_id_hex)
+        if gid != identity.node_id:
+            fed_genesis_id = gid
+            fed_genesis_addr = (socket.gethostbyname(genesis_host), genesis_gossip_port)
 
     from ..network.federation import space_fingerprint
     space_fp = space_fingerprint(task_name, n_classes, embedding=task.embedding,
@@ -140,7 +145,7 @@ async def main() -> int:
                   radii=(task.radii or None),
                   enable_federation=(federate and role == "rendezvous"),
                   beacon_task=task_name, beacon_name=beacon_name, beacon_space_fp=space_fp,
-                  federation_master_id=fed_master_id, federation_master_addr=fed_master_addr)
+                  federation_genesis_id=fed_genesis_id, federation_genesis_addr=fed_genesis_addr)
 
     def feed():
         return task.feed(my_classes, np_rng)
@@ -165,8 +170,8 @@ async def main() -> int:
              dht=f"{public_host or advertise}:{dht_port}")
         if net.federation is not None:
             _log("federation", enabled=True,
-                 role=("hub" if fed_master_id is None else "member"),
-                 master=(master_host if fed_master_id is not None else "-"),
+                 role=("genesis" if fed_genesis_id is None else "peer"),
+                 genesis=(genesis_host if fed_genesis_id is not None else "-"),
                  name=beacon_name or "-", task=task_name)
         if http_port:
             from ..network import beacon_status

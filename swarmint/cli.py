@@ -100,27 +100,30 @@ def cmd_beacon(args) -> int:
         SWARM_HTTP_PORT=(args.http_port or None),
         SWARM_ENABLE_RELAY="1",
         SWARM_TASK=args.task,
-        # Beacon federation: by default a community beacon joins the global mesh by
-        # registering with the public master, so its operator can confirm reachability
-        # from the master's (and its own) status page. --no-federate opts out.
+        # Beacon federation: by default a beacon joins the global mesh by bootstrapping
+        # from the genesis beacon (beacon.swarmint.org — the well-known entry point, not
+        # an authority). It then holds the full directory and gossips peer-to-peer like
+        # every other beacon. --no-federate opts out; --genesis points at any beacon.
         SWARM_FEDERATION=("0" if args.no_federate else "1"),
-        SWARM_MASTER_HOST=(None if args.no_federate else args.master),
-        SWARM_MASTER_ID=(None if args.no_federate else args.master_id),
-        SWARM_MASTER_GOSSIP_PORT=(None if args.no_federate else args.master_gossip_port),
+        SWARM_GENESIS_HOST=(None if args.no_federate else args.genesis),
+        SWARM_GENESIS_ID=(None if args.no_federate else args.genesis_id),
+        SWARM_GENESIS_GOSSIP_PORT=(None if args.no_federate else args.genesis_gossip_port),
         SWARM_BEACON_NAME=(args.name or None),
     )
     print(f"swarmint: hosting a beacon (seed {args.seed}); node_id is deterministic "
           f"from the seed. Others join with:\n"
           f"  swarmint join --beacon <this-host> --beacon-id <node_id>\n")
     if not args.no_federate:
-        print(f"swarmint: federating with {args.master} — run with --http-port to see the "
-              f"beacon directory, or check the master's page to confirm this beacon is reachable.\n")
+        print(f"swarmint: joining the federation via genesis {args.genesis} — run with --http-port "
+              f"to see the beacon directory (every beacon holds the full map), or check the genesis "
+              f"page to confirm this beacon is reachable.\n")
     return _run_net_daemon()
 
 
 def cmd_beacons(args) -> int:
     """List the beacon federation as seen by a beacon's /federation.json (default:
-    the public master over HTTPS; --url for a local/plain-HTTP beacon)."""
+    the genesis beacon over HTTPS; --url for a local/plain-HTTP beacon). Every beacon
+    holds the full directory, so any beacon's view is the whole mesh."""
     import json
     import urllib.request
     url = args.url or f"https://{args.beacon}/federation.json"
@@ -274,10 +277,10 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--task", default="digits", choices=["digits", "synthetic"],
                    help="what the swarm learns (default: real sklearn digits)")
     b.add_argument("--name", default=None, help="human label for this beacon in the directory")
-    b.add_argument("--master", default=BEACON_HOST,
-                   help=f"federation hub to register with (default {BEACON_HOST})")
-    b.add_argument("--master-id", default=BEACON_NODE_ID, help="hub node_id (hex)")
-    b.add_argument("--master-gossip-port", type=int, default=BEACON_GOSSIP_PORT)
+    b.add_argument("--genesis", default=BEACON_HOST,
+                   help=f"beacon to bootstrap the federation from (default: the genesis, {BEACON_HOST})")
+    b.add_argument("--genesis-id", default=BEACON_NODE_ID, help="bootstrap beacon node_id (hex)")
+    b.add_argument("--genesis-gossip-port", type=int, default=BEACON_GOSSIP_PORT)
     b.add_argument("--no-federate", action="store_true",
                    help="run standalone; do not join the beacon federation")
     b.set_defaults(func=cmd_beacon)

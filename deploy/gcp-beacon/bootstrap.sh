@@ -42,12 +42,14 @@ SWARM_ENABLE_RELAY=1
 SWARM_DURATION_S=0
 SWARM_TASK=${SWARM_TASK:-digits}
 SWARM_FEDERATION=1
-SWARM_BEACON_NAME=master
+SWARM_BEACON_NAME=genesis
 EOF
-# SWARM_FEDERATION=1: this beacon is the federation HUB. Since its own id equals
-# the default --master-id (seed-0 => 8c30c97e...), net_daemon detects self-as-hub
-# and registers with no one — it just aggregates + gossips the beacon directory.
-# Community beacons run `swarmint beacon` (federating with this hub by default).
+# SWARM_FEDERATION=1: this beacon is the GENESIS — the well-known bootstrap entry
+# point (beacon.swarmint.org), not a master. Since its own id equals the default
+# genesis id (seed-0 => 8c30c97e...), net_daemon detects self-as-genesis and
+# bootstraps from no one; it just holds + gossips the full directory like every
+# other beacon. Peers run `swarmint beacon` (bootstrapping from this genesis by
+# default), then hold the same full directory themselves.
 # SWARM_PUBLIC_HOST: bind 0.0.0.0 but ADVERTISE the public IP (1:1 cloud NAT).
 # Status page binds 127.0.0.1:8080 — Caddy (below) fronts it with HTTPS on 443.
 

@@ -2,10 +2,14 @@
 
 Each beacon is a rendezvous/relay hosting its own local swarm. The federation is
 the map of WHERE every beacon is and how to reach it — the white-matter tract map
-connecting the regions. The master beacon (beacon.swarmint.org) is a well-known
-rich-club HUB used to bootstrap the map, NOT an authority: every beacon advert is
-signed by the beacon's own Ed25519 identity and gossiped peer-to-peer as soft
-state, so the directory survives the master dying (the thesis: no center to fail).
+connecting the regions. There is NO master: every beacon is a peer that holds the
+FULL directory (links to all beacons and their swarms) and gossips it. The GENESIS
+beacon (beacon.swarmint.org) is special in exactly one way — it's the well-known
+DNS name a newcomer contacts FIRST to bootstrap into the mesh. It has no authority:
+adverts are signed by each beacon's own Ed25519 identity and gossiped peer-to-peer
+as soft state, so the directory survives the genesis dying (a restarted genesis
+just re-learns it from the others), and a beacon can bootstrap off ANY beacon it
+knows — the genesis is only the default entry point.
 
 Two layers, kept apart on purpose:
 
@@ -146,20 +150,20 @@ class FederationService:
     reachability pings, and drives the periodic re-advert / gossip / probe tick."""
 
     def __init__(self, identity: Identity, bus, own: dict, *,
-                 master_id: bytes = None, master_addr: tuple = None, on_bridge=None):
+                 genesis_id: bytes = None, genesis_addr: tuple = None, on_bridge=None):
         self.identity = identity
         self.bus = bus
         self.own = own                       # host/gossip_port/dht_port/task/n_classes/topics/name/space_fp
-        self.master_id = master_id
-        self.master_addr = master_addr
+        self.genesis_id = genesis_id
+        self.genesis_addr = genesis_addr
         self.on_bridge = on_bridge           # called(node_id, addr) to cross-learn with a compatible beacon
         self.registry = BeaconRegistry(self_id=identity.node_id, own_fp=own.get("space_fp", ""))
         self.replay_guard = ReplayGuard()
         self._pending_pings = {}             # nonce -> node_id
         self._bridged = set()                # beacons we've already wired into local gossip
         self._own_blob = None
-        if master_id is not None and master_addr is not None:
-            self.bus.peer_addrs.setdefault(master_id, master_addr)
+        if genesis_id is not None and genesis_addr is not None:
+            self.bus.peer_addrs.setdefault(genesis_id, genesis_addr)
 
     # ---- own advert ----
 
@@ -246,24 +250,25 @@ class FederationService:
             group = blobs[i:i + GOSSIP_BLOB_GROUP]
             self.bus.send(Message(self.identity.node_id, target, "beacon_gossip", {"blobs": group}))
 
-    def register_with_master(self, now: float) -> None:
-        """Introduce ourselves to the hub: send our signed advert. The master
-        verifies it and pings us back — that pong is the operator's confirmation
-        their beacon is reachable."""
-        if self.master_id is None:
+    def announce_to_genesis(self, now: float) -> None:
+        """Introduce ourselves to our bootstrap beacon (the genesis by default,
+        but any known beacon works): send our signed advert. It verifies and pings
+        us back — that pong is the operator's confirmation their beacon is reachable
+        — then gossips us to the rest of the mesh, and us the rest."""
+        if self.genesis_id is None:
             return
         self.build_own_advert(now)
-        self._send_blobs(self.master_id, [self._own_blob])
+        self._send_blobs(self.genesis_id, [self._own_blob])
 
     def tick(self, rng, now: float) -> None:
         """One federation round (driven off the gossip cadence): refresh our own
-        advert, push the known set to a fanout of beacons (+ the master), re-probe
+        advert, push the known set to a fanout of beacons (+ the genesis), re-probe
         reachability, and expire stale entries."""
         self.build_own_advert(now)
         blobs = [self._own_blob] + self.registry.gossip_blobs()
         targets = list(self.registry.beacons.keys())
-        if self.master_id is not None:
-            targets.append(self.master_id)
+        if self.genesis_id is not None:
+            targets.append(self.genesis_id)
         if targets:
             rng.shuffle(targets)
             for tid in targets[:GOSSIP_FANOUT]:

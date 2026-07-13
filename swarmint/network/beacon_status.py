@@ -133,7 +133,7 @@ def render_html(snap: dict) -> str:
                 f"</tr>")
         frows = "\n".join(frows) or (
             "<tr><td colspan='6' class='empty'>No other beacons known yet. Point a beacon "
-            "at this one with <code>--master</code> and it will appear here once reachable.</td></tr>")
+            "at this one with <code>--genesis</code> and it will appear here once reachable.</td></tr>")
         fed_section = f"""
   <h2 style="font-size:16px;margin:34px 0 6px;letter-spacing:-.01em;">Federated beacons</h2>
   <p class="sub" style="margin-bottom:14px;">Other beacons in the mesh — a decentralized,

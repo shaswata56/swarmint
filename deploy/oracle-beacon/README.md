@@ -1,9 +1,9 @@
 # Second beacon on Oracle Cloud (Always Free, forever)
 
 A second swarmint beacon on Oracle's **Always Free** tier — a genuinely separate
-host on a different cloud/network — that joins the federation run by the master
-(`beacon.swarmint.org`) and **cross-learns** with it. Two independent beacons, one
-system, $0 forever.
+host on a different cloud/network — that joins the federation via the genesis beacon
+(`beacon.swarmint.org`) and **cross-learns** with the mesh. There's no master: every
+beacon holds the full directory. Two independent beacons, one system, $0 forever.
 
 Why Oracle (not a 2nd GCP VM): GCP Always Free is exactly **one** e2-micro per
 billing account; a second would be billed. Oracle Always Free includes Arm Ampere
@@ -23,7 +23,7 @@ and openable UDP.
    default → **Add Ingress Rules**:
    - Source `0.0.0.0/0`, IP Protocol **UDP**, Destination port range **`9001-9023`**
      (gossip + DHT + room for a local backbone). Leave "stateless" unchecked.
-   - This is the one step the host-side script can't do; without it the master's
+   - This is the one step the host-side script can't do; without it the genesis's
      reachability probe can't reach the beacon and it shows "unverified".
 
 ## One command on the box
@@ -34,8 +34,8 @@ bash bootstrap.sh <PUBLIC_IP> oracle-1
 ```
 
 That installs swarmint, opens the host firewall (firewalld/ufw/iptables — Oracle
-images vary), and runs a **federation-member** beacon (task=digits, distinct seed)
-that registers with the master. It learns the full digit model from the master's
+images vary), and runs a **federation-peer** beacon (task=digits, distinct seed)
+that bootstraps from the genesis. It learns the full digit model from the genesis's
 swarm across the internet via cross-beacon bridging. Add a third arg (`bash
 bootstrap.sh <IP> oracle-1 4`) to also run a local 4-node backbone so this beacon
 contributes its own quorum.
@@ -43,13 +43,13 @@ contributes its own quorum.
 ## Verify (from anywhere)
 
 ```bash
-swarmint beacons                                   # the master's directory — oracle-1 should be "up"
-curl -s http://<PUBLIC_IP>:8080/federation.json    # the member's own view (should list the master)
+swarmint beacons                                   # the directory (any beacon) — oracle-1 should be "up"
+curl -s http://<PUBLIC_IP>:8080/federation.json    # this beacon's own view (holds the full mesh)
 ```
 
 On the box, `sudo journalctl -u swarmint-beacon -f | grep -E "federation|metrics"` shows
-`federation enabled=True role=member` and the held-out `acc=` climbing toward the
-ceiling as prototypes cross from the master's swarm.
+`federation enabled=True role=peer` and the held-out `acc=` climbing toward the
+ceiling as prototypes cross from the genesis's swarm.
 
 ## Cost guard (keep it forever-free)
 - Use **only** Always-Free shapes: A1.Flex ≤ 4 OCPU / 24 GB total, or VM.Standard.E2.1.Micro.
