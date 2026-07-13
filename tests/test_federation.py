@@ -157,6 +157,21 @@ def test_friendly_beacon_name_deterministic_and_unique():
     assert na.count("-") >= 3
 
 
+def test_resolve_endpoint():
+    from swarmint.network.federation import resolve_endpoint
+    OWN = "136.117.145.214"
+    # non-loopback advertised wins
+    assert resolve_endpoint(("5.6.7.8", 9003), ("1.2.3.4", 5000), OWN) == "5.6.7.8:9003"
+    # advertised loopback, observed real -> use observed
+    assert resolve_endpoint(("127.0.0.1", 9003), ("1.2.3.4", 9003), OWN) == "1.2.3.4:9003"
+    # both loopback but we OBSERVED it -> co-located -> our public host + its port
+    assert resolve_endpoint(("127.0.0.1", 9401), ("127.0.0.1", 9401), OWN) == "136.117.145.214:9401"
+    # loopback only in advertised (PEX hearsay), never observed -> None (don't lie)
+    assert resolve_endpoint(("127.0.0.1", 9401), None, OWN) is None
+    # nothing known -> None
+    assert resolve_endpoint(None, None, OWN) is None
+
+
 def test_beacon_registry_display_endpoint():
     from swarmint.network.federation import BeaconRegistry as R
     # genesis with a domain url -> show the domain (resolves to the same host, reads better)

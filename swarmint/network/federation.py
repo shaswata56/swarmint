@@ -70,6 +70,26 @@ def friendly_beacon_name(node_id: bytes) -> str:
     return f"beacon-{a}-{n}-{node_id.hex()[:4]}"
 
 
+_LOOPBACK = ("127.0.0.1", "0.0.0.0", "localhost", "::1")
+
+
+def resolve_endpoint(advertised, observed, own_host):
+    """The dial-able "host:port" to publish/show for one of a beacon's own peers,
+    or None if there's no honest address. Used identically by the census (what we
+    gossip swarm-wide) AND the local status display, so both agree:
+      - a non-loopback address (self-advertised, or the source we observed) wins;
+      - else if we OBSERVED it over loopback, it's co-located, so its port lives at
+        OUR public host -> rewrite to own_host;
+      - else (only a loopback address heard via PEX hearsay, never observed here) ->
+        None: we have no real address, and claiming one under our host would lie."""
+    def live(a):
+        return a if (a and a[0] not in _LOOPBACK) else None
+    ep = live(advertised) or live(observed)
+    if ep is None and observed and observed[0] in _LOOPBACK and own_host not in _LOOPBACK:
+        ep = (own_host, observed[1])
+    return f"{ep[0]}:{ep[1]}" if ep else None
+
+
 BEACON_TTL_S = 90.0          # drop a beacon we haven't re-heard an advert for in this long
 REACHABLE_TTL_S = 45.0       # "reachable" decays faster than mere existence: a beacon stays
                              # KNOWN via gossip while its direct pong goes quiet (firewall

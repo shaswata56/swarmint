@@ -18,6 +18,8 @@ import asyncio
 import html
 import time
 
+from .federation import resolve_endpoint
+
 
 def _fmt_ago(seconds: float) -> str:
     if seconds < 1:
@@ -50,16 +52,22 @@ def snapshot(net, start_time: float, now: float) -> dict:
     # --- this beacon's own peers (excluding other beacons, which have their own row
     #     in the Federated Beacons table) ---
     beacon_ids = set(fed.registry.beacons) if fed is not None else set()
+    own_host = (fed.own.get("host") if fed is not None else None) or "0.0.0.0"
     local = {}
     for nid in set(disc.peer_addrs) | set(bus.peer_addrs):
         if nid in beacon_ids or nid == net.identity.node_id:
             continue
-        addr = disc.peer_addrs.get(nid) or bus.peer_addrs.get(nid)
+        # Same endpoint resolution as the census gossip (federation.resolve_endpoint)
+        # so a co-located node shown here matches what we publish swarm-wide, and a
+        # loopback address never leaks to the page.
+        ep = resolve_endpoint(disc.peer_addrs.get(nid), bus.peer_addrs.get(nid), own_host)
+        if ep is None:
+            continue
         seen = disc.peer_seen_at.get(nid)
         age = (now - seen) if seen else None
         local[nid.hex()] = {
             "id": nid.hex(),
-            "endpoint": f"{addr[0]}:{addr[1]}" if addr else "-",
+            "endpoint": ep,
             "topics": sorted(disc.peer_topics.get(nid, set())),
             "age_s": age,
             "sources": [own_name],

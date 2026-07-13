@@ -148,35 +148,23 @@ class NetNode:
                 self.bus.send(Message(self.identity.node_id, nid, "pex",
                                       self.discovery.pex_payload()))
 
-            _LOOPBACK = ("127.0.0.1", "0.0.0.0", "localhost", "::1")
+            from ..network.federation import resolve_endpoint
 
             def _census_source():
                 # OUR local peers, for gossiping to other beacons: node_id +
                 # dial-able endpoint + topic hints. Excludes other beacons and self.
-                # Endpoint resolution, honest about what's publishable swarm-wide:
-                #   1. a non-loopback address (self-advertised, or the source we
-                #      actually observed) -> use it directly;
-                #   2. else if WE observed the peer over loopback -> it's co-located
-                #      with us, so its port lives at OUR public host -> rewrite to it;
-                #   3. else (only a loopback address heard via PEX hearsay, never
-                #      observed here) -> SKIP: we have no real address, and rewriting
-                #      a REMOTE node's loopback to our host would be a lie.
+                # Endpoint resolution is shared with the status display (see
+                # federation.resolve_endpoint) so gossip and page always agree.
                 out = []
                 beacon_ids = set(self.federation.registry.beacons) if self.federation else set()
-
-                def _live(a):
-                    return a if (a and a[0] not in _LOOPBACK) else None
                 for pid in self.node.peers:
                     if pid == self.identity.node_id or pid in beacon_ids:
                         continue
-                    advertised = self.discovery.peer_addrs.get(pid)
-                    observed = self.bus.peer_addrs.get(pid)
-                    ep = _live(advertised) or _live(observed)
-                    if ep is None and observed and observed[0] in _LOOPBACK:
-                        ep = (advertise_host, observed[1])  # co-located: our public host
+                    ep = resolve_endpoint(self.discovery.peer_addrs.get(pid),
+                                          self.bus.peer_addrs.get(pid), advertise_host)
                     if ep is None:
                         continue
-                    out.append({"id": pid, "ep": f"{ep[0]}:{ep[1]}",
+                    out.append({"id": pid, "ep": ep,
                                 "topics": sorted(self.discovery.peer_topics.get(pid, set()))})
                 return out
 
