@@ -65,13 +65,34 @@ code, pre { font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; }
   -webkit-backdrop-filter: saturate(180%) blur(12px);
   border-bottom: 1px solid var(--line);
 }
-.nav .wrap { display: flex; align-items: center; gap: 18px; width: 100%; }
+.nav .wrap { display: flex; align-items: center; gap: 18px; width: 100%; position: relative; }
 .nav .brand { font-weight: 700; letter-spacing: -.01em; color: var(--fg); font-size: 16px; margin-right: auto; display: inline-flex; align-items: center; gap: 8px; }
 .nav .brand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
-.nav a.navlink { color: var(--muted); font-size: 14.5px; font-weight: 500; transition: color .15s var(--ease); }
+.nav a.navlink { color: var(--muted); font-size: 14.5px; font-weight: 500; transition: color .15s var(--ease); white-space: nowrap; }
 .nav a.navlink:hover { color: var(--fg); text-decoration: none; }
 .nav .spacer { flex: 1; }
-@media (max-width: 620px) { .nav a.navlink.hide-sm { display: none; } }
+.nav .navlinks { display: flex; align-items: center; gap: 18px; }
+.nav .navtoggle {
+  display: none; background: none; border: 1px solid var(--line); border-radius: 8px;
+  color: var(--fg); font-size: 18px; line-height: 1; width: 36px; height: 36px;
+  align-items: center; justify-content: center; cursor: pointer;
+}
+/* Collapsible dropdown below ~700px: all nav links move off the bar into a
+   hamburger-toggled panel, instead of the old approach of silently hiding
+   individual links (which got cluttered as more links were added). */
+@media (max-width: 700px) {
+  .nav .navtoggle { display: inline-flex; }
+  .nav .navlinks {
+    display: none; position: absolute; top: 100%; left: 0; right: 0;
+    flex-direction: column; align-items: stretch; gap: 0;
+    background: var(--bg); border-bottom: 1px solid var(--line);
+    box-shadow: 0 12px 24px -8px rgba(0,0,0,.35);
+  }
+  .nav .navlinks.open { display: flex; }
+  .nav .navlinks a.navlink {
+    padding: 14px 20px; border-top: 1px solid var(--line); font-size: 15px;
+  }
+}
 
 /* ---- buttons ---- */
 .btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }

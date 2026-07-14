@@ -38,6 +38,19 @@ gcloud compute firewall-rules create swarmint-beacon-web \
   --description="swarmint beacon status page (Caddy TLS + ACME)" \
   2>/dev/null || echo "   (web rule already exists, skipping)"
 
+# WebRTC (the `web` extra / webrtc_answerer.py): aioice binds its ICE candidate
+# sockets with local_addr=(address, 0) -- it has NO port_range config, always an
+# OS-random ephemeral UDP port. Without this rule, STUN still discovers the
+# right public address, but the firewall silently drops the actual connectivity
+# packets to it -- "data channel timed out" with no useful error. 32768-60999 is
+# Debian/Ubuntu's default ip_local_port_range; adjust if the image differs.
+echo ">> opening inbound UDP 32768-60999 (WebRTC ICE ephemeral ports) ..."
+gcloud compute firewall-rules create swarmint-beacon-webrtc \
+  --allow="udp:32768-60999" \
+  --target-tags=swarmint-beacon \
+  --description="WebRTC ICE ephemeral ports (aioice has no port_range config)" \
+  2>/dev/null || echo "   (webrtc rule already exists, skipping)"
+
 IP=$(gcloud compute instances describe "$NAME" --zone="$ZONE" \
       --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
 

@@ -1,7 +1,29 @@
-/* swarmint site interactions — shared by index.html and docs.html.
+/* swarmint site interactions — shared by index.html, docs.html, paper.html.
    The hero swarm animation lives inline in index.html (page-specific). */
 (function () {
   "use strict";
+
+  /* ---- mobile nav: collapsible dropdown behind a hamburger button ---- */
+  (function () {
+    var btn = document.getElementById("navtoggle"), links = document.getElementById("navlinks");
+    if (!btn || !links) return;
+    function setOpen(open) {
+      links.classList.toggle("open", open);
+      btn.setAttribute("aria-expanded", String(open));
+      btn.textContent = open ? "✕" : "☰";
+    }
+    btn.addEventListener("click", function () { setOpen(!links.classList.contains("open")); });
+    links.addEventListener("click", function (e) {
+      if (e.target.closest("a")) setOpen(false); // close after navigating
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") setOpen(false);
+    });
+    document.addEventListener("click", function (e) {
+      if (!links.classList.contains("open")) return;
+      if (!links.contains(e.target) && e.target !== btn) setOpen(false);
+    });
+  })();
 
   /* ---- theme toggle: Auto (follow OS) -> Light -> Dark, persisted ---- */
   (function () {

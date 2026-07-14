@@ -100,7 +100,7 @@ import { unpackEnvelope } from "./swarmint-client/wire.mjs";
 const canvas = document.getElementById("draw");
 const ctx = canvas.getContext("2d");
 ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-ctx.strokeStyle = "#fff"; ctx.lineWidth = 16; ctx.lineCap = "round"; ctx.lineJoin = "round";
+ctx.strokeStyle = "#fff"; ctx.fillStyle = "#fff"; ctx.lineWidth = 16; ctx.lineCap = "round"; ctx.lineJoin = "round";
 
 let drawing = false, lastX = 0, lastY = 0;
 function pos(e) {
@@ -109,21 +109,38 @@ function pos(e) {
   const cy = (e.touches ? e.touches[0].clientY : e.clientY) - r.top;
   return [cx * canvas.width / r.width, cy * canvas.height / r.height];
 }
-function start(e) { drawing = true; [lastX, lastY] = pos(e); e.preventDefault(); }
+function dot(x, y) {
+  // A tap/click with no movement must still leave a mark -- draw a filled
+  // circle at the point immediately on press, don't wait for a drag. Without
+  // this, quick dabs (common with a finger, e.g. dotting an "i") drew NOTHING,
+  // which read as "the canvas doesn't work" even though dragging was fine.
+  ctx.beginPath(); ctx.arc(x, y, ctx.lineWidth / 2, 0, Math.PI * 2); ctx.fill();
+}
+function start(e) {
+  drawing = true; [lastX, lastY] = pos(e); dot(lastX, lastY); e.preventDefault();
+}
 function move(e) {
   if (!drawing) return;
   const [x, y] = pos(e);
   ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(x, y); ctx.stroke();
   [lastX, lastY] = [x, y]; e.preventDefault();
 }
-function end() { drawing = false; }
-canvas.addEventListener("mousedown", start); canvas.addEventListener("mousemove", move);
+function end(e) { drawing = false; if (e) e.preventDefault(); }
+canvas.addEventListener("mousedown", start);
+canvas.addEventListener("mousemove", move);
 window.addEventListener("mouseup", end);
-canvas.addEventListener("touchstart", start); canvas.addEventListener("touchmove", move);
-canvas.addEventListener("touchend", end);
+// Explicit {passive:false}: some mobile browsers default touchstart/touchmove
+// listeners to passive (for scroll perf), which SILENTLY IGNORES
+// preventDefault() and lets the page scroll/zoom under your finger instead of
+// drawing. Being explicit here removes that ambiguity across browsers.
+canvas.addEventListener("touchstart", start, { passive: false });
+canvas.addEventListener("touchmove", move, { passive: false });
+canvas.addEventListener("touchend", end, { passive: false });
+canvas.addEventListener("touchcancel", end, { passive: false });
 
 document.getElementById("clear").onclick = () => {
   ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#fff"; // restore -- fillStyle is shared with dot()'s white ink fill
   setStatus(""); document.getElementById("result").style.display = "none";
   resetSteps();
 };

@@ -15,12 +15,22 @@ import logging
 import time
 from collections import OrderedDict
 
-from aiortc import RTCPeerConnection, RTCSessionDescription
+from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection, RTCSessionDescription
 
 from . import wire
 from .identity import Identity, ReplayGuard, verify_envelope
 
 log = logging.getLogger(__name__)
+
+# A cloud VM's local candidate is its PRIVATE address (GCP 1:1-NATs a public IP
+# onto an internal one; the OS never sees the public IP directly). Without a
+# STUN server configured HERE — on the answering/Python side, not just the
+# browser side — aiortc never discovers its server-reflexive (public) address
+# and only offers a useless private-IP candidate, so a remote browser's ICE
+# connectivity checks silently time out no matter how well the browser side is
+# configured. Mirrors the STUN server infer.html already sets on the browser's
+# RTCPeerConnection — both ends must resolve their real public address.
+_DEFAULT_ICE_SERVERS = [RTCIceServer(urls="stun:stun.l.google.com:19302")]
 
 RECENT_BROWSER_CLIENTS_MAX = 200  # FIFO cap, mirrors ReplayGuard's bound-under-churn pattern
 
@@ -70,7 +80,7 @@ class WebRTCAnswerer:
         self.node = node                      # a SwarmNode — answer_query() is PURE
         self.replay_guard = ReplayGuard()
         self.on_query = on_query               # optional callback(label, confidence) for logging/UI
-        self.pc = RTCPeerConnection()
+        self.pc = RTCPeerConnection(configuration=RTCConfiguration(iceServers=_DEFAULT_ICE_SERVERS))
         self._channel = None
 
         @self.pc.on("datachannel")
