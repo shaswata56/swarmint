@@ -32,7 +32,17 @@ def _fake_snapshot(with_federation=True):
                         "topics": [1], "reachable": True, "age_s": 5.0, "same_space": True,
                         "status_url": "http://34.132.137.213/"}] if with_federation else []),
         "n_beacons_reachable": 1 if with_federation else 0,
+        "browser_clients": [{"id": "dd" * 20, "age_s": 3.0, "n_queries": 2,
+                            "last_label": 7, "last_confidence": 0.92}],
+        "n_browser_clients": 1,
     }
+
+
+def test_browser_clients_section_renders_and_links_to_infer_page():
+    html = bs.render_html(_fake_snapshot())
+    assert "Browser clients" in html
+    assert 'href="https://swarmint.org/infer/"' in html
+    assert '"browser_clients"' in html and '"n_browser_clients": 1' in html
 
 
 def test_page_is_api_driven_not_meta_refresh():
@@ -123,6 +133,7 @@ def test_status_json_endpoint_shape_matches_snapshot_keys():
 
 if __name__ == "__main__":
     test_page_is_api_driven_not_meta_refresh()
+    test_browser_clients_section_renders_and_links_to_infer_page()
     test_peer_table_is_whole_swarm_aggregate()
     test_dom_writes_are_null_guarded()
     test_status_url_rendered_for_clickable_federation_row()

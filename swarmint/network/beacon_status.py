@@ -98,6 +98,17 @@ def snapshot(net, start_time: float, now: float) -> dict:
     peer_list.sort(key=lambda p: (not p["active"], p["age_s"] if p["age_s"] is not None else 1e9))
 
     federation = fed.registry.snapshot(now) if fed is not None else []
+
+    # Browser P2P clients (WebRTC, signaled via this beacon's /signal — see
+    # webrtc_answerer.py): lazy/guarded import so a beacon WITHOUT the optional
+    # `web` extra (aiortc) still renders everything else unaffected.
+    browser_clients = []
+    try:
+        from .webrtc_answerer import recent_browser_clients
+        browser_clients = recent_browser_clients(now)
+    except ImportError:
+        pass
+
     return {
         "beacon_id": net.identity.node_id.hex(),
         "uptime_s": now - start_time,
@@ -107,6 +118,8 @@ def snapshot(net, start_time: float, now: float) -> dict:
         "federates": fed is not None,
         "federation": federation,
         "n_beacons_reachable": sum(1 for b in federation if b["reachable"]),
+        "browser_clients": browser_clients,
+        "n_browser_clients": len(browser_clients),
     }
 
 
@@ -179,12 +192,14 @@ _PAGE = """<!doctype html>
 <body><div class="wrap">
   <h1><span class="g">swarmint</span> beacon<span class="live"><span class="livedot" id="livedot"></span><span id="livetxt">live</span></span></h1>
   <p class="sub">Public rendezvous &amp; relay for the swarmint P2P network — read-only, live.
-  Learn more at <a href="https://swarmint.org">swarmint.org</a>.</p>
+  <a href="https://swarmint.org/infer/">Ask the swarm a question</a> straight from your browser (P2P over WebRTC — the
+  beacon only signals) · Learn more at <a href="https://swarmint.org">swarmint.org</a>.</p>
   <div class="cards">
     <div class="card hi"><div class="n" id="n_active">—</div><div class="l">active peers</div></div>
     <div class="card"><div class="n" id="n_total">—</div><div class="l">known peers</div></div>
     <div class="card"><div class="n" id="uptime">—</div><div class="l">beacon uptime</div></div>
     <div class="card" id="fedcard" style="display:none"><div class="n" id="n_fed">—</div><div class="l">federated beacons</div></div>
+    <div class="card" id="browsercard" style="display:none"><div class="n" id="n_browser">—</div><div class="l">browser clients (P2P)</div></div>
   </div>
   <p class="sub" style="margin:0 0 10px;">Every node in the swarm, aggregated from all
   beacons over signed P2P gossip (no central server) — the same whole-swarm view from any beacon.</p>
@@ -206,6 +221,19 @@ _PAGE = """<!doctype html>
         <th>task</th><th>reachability</th><th>last seen</th>
       </tr></thead>
       <tbody id="beacons"></tbody>
+    </table></div>
+  </div>
+  <div id="browsersec" style="display:none">
+    <h2>Browser clients</h2>
+    <p class="sub" style="margin-bottom:14px;">Recent queries answered directly over a P2P WebRTC data
+    channel from a browser — no HTTP inference endpoint. Each browser signs with a fresh, throwaway
+    identity per visit (by design, for privacy), so this is an activity window, not a peer registry.
+    <a href="https://swarmint.org/infer/">Try it</a>.</p>
+    <div class="tblwrap"><table>
+      <thead><tr>
+        <th>client id</th><th>queries</th><th>last answer</th><th>last seen</th>
+      </tr></thead>
+      <tbody id="browserclients"></tbody>
     </table></div>
   </div>
   <footer>
@@ -279,6 +307,18 @@ window.__INITIAL__ = /*__INITIAL__*/null;
     row.dataset.age = (b.age_s == null ? "" : b.age_s);
     setText(row.querySelector(".age"), fmtAgo(b.age_s));
   }
+  function browserRow(){ return tr(
+    '<td class="mono idc"></td><td class="nq"></td><td class="la"></td><td class="age"></td>'); }
+  function updBrowser(row, c){
+    if(!row) return;
+    setText(row.querySelector(".idc"), truncId(c.id));
+    setText(row.querySelector(".nq"), c.n_queries);
+    var la = c.last_label == null ? "abstained" : ("digit " + c.last_label +
+      " (" + Math.round((c.last_confidence||0)*100) + "%)");
+    setText(row.querySelector(".la"), la);
+    row.dataset.age = (c.age_s == null ? "" : c.age_s);
+    setText(row.querySelector(".age"), fmtAgo(c.age_s));
+  }
   function reconcile(tbody, items, build, upd, cols, emptyHtml){
     var existing = {}, i, r;
     var rows = tbody.querySelectorAll("tr[data-id]");
@@ -310,6 +350,13 @@ window.__INITIAL__ = /*__INITIAL__*/null;
       setText($("n_fed"), d.n_beacons_reachable || 0);
       reconcile($("beacons"), d.federation || [], beaconRow, updBeacon, 6,
         "No other beacons known yet. Point a beacon at this one with <code>--genesis</code> and it appears here once reachable.");
+    }
+    var showBrowsers = !!(d.browser_clients && d.browser_clients.length);
+    $("browsersec").style.display = showBrowsers ? "" : "none";
+    $("browsercard").style.display = showBrowsers ? "" : "none";
+    if(showBrowsers){
+      setText($("n_browser"), d.n_browser_clients || 0);
+      reconcile($("browserclients"), d.browser_clients, browserRow, updBrowser, 4, "");
     }
   }
   function tickAges(){

@@ -12,6 +12,8 @@ just over a transport a browser can actually open (browsers cannot do raw UDP).
 """
 
 import logging
+import time
+from collections import OrderedDict
 
 from aiortc import RTCPeerConnection, RTCSessionDescription
 
@@ -19,6 +21,43 @@ from . import wire
 from .identity import Identity, ReplayGuard, verify_envelope
 
 log = logging.getLogger(__name__)
+
+RECENT_BROWSER_CLIENTS_MAX = 200  # FIFO cap, mirrors ReplayGuard's bound-under-churn pattern
+
+# node_id -> {"first_seen", "last_seen", "n_queries", "last_label", "last_confidence"}.
+# Module-level and deliberately EPHEMERAL: a browser client's identity is a fresh
+# random keypair per query by design (infer.html), so this is an activity window
+# ("N browsers asked the swarm something recently"), never a persistent registry —
+# nothing more identifying than what a query envelope's signature already reveals.
+_recent_browser_clients: "OrderedDict[bytes, dict]" = OrderedDict()
+
+
+def _record_browser_query(sender_id: bytes, label, confidence: float) -> None:
+    now = time.time()
+    entry = _recent_browser_clients.get(sender_id)
+    if entry is None:
+        entry = {"first_seen": now, "n_queries": 0}
+        if len(_recent_browser_clients) >= RECENT_BROWSER_CLIENTS_MAX:
+            _recent_browser_clients.popitem(last=False)  # evict oldest
+    else:
+        _recent_browser_clients.pop(sender_id, None)  # re-insert to move to the end (LRU-ish)
+    entry.update(last_seen=now, n_queries=entry["n_queries"] + 1,
+                last_label=label, last_confidence=confidence)
+    _recent_browser_clients[sender_id] = entry
+
+
+def recent_browser_clients(now: float, window_s: float = 300.0) -> list:
+    """Browser-answered queries within the last `window_s` — for the status
+    page's transparency view ("browser clients appear on the beacon too")."""
+    out = []
+    for sender_id, entry in _recent_browser_clients.items():
+        age_s = now - entry["last_seen"]
+        if age_s > window_s:
+            continue
+        out.append({"id": sender_id.hex(), "age_s": age_s, "n_queries": entry["n_queries"],
+                   "last_label": entry["last_label"], "last_confidence": entry["last_confidence"]})
+    out.sort(key=lambda c: c["age_s"])
+    return out
 
 
 class WebRTCAnswerer:
@@ -55,10 +94,11 @@ class WebRTCAnswerer:
             return  # this bridge only answers inference queries, nothing else
         payload = wire.unpack_inference_query(result.body)
         label, confidence = self.node.answer_query(payload["x"])  # PURE, untouched
+        _record_browser_query(result.sender, label, confidence)
         if self.on_query is not None:
-            self.on_query(label, confidence)
+            self.on_query(result.sender, label, confidence)
         body = wire.pack_inference_response(payload["id"], label, confidence)
-        envelope = self.identity.sign_envelope(body, ts=__import__("time").time())
+        envelope = self.identity.sign_envelope(body, ts=time.time())
         channel.send(envelope)
 
     async def accept_offer(self, sdp: str, sdp_type: str) -> RTCSessionDescription:
