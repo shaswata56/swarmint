@@ -38,6 +38,13 @@
   .result .conf { color:#8b93a7; font-size:13px; margin-top:4px; }
   .votes { margin-top:10px; font-size:12px; color:#8b93a7; }
   .votes .v { font-family:ui-monospace,monospace; }
+  .result .personalized { display:inline-block; margin-left:8px; padding:1px 8px; border-radius:20px;
+          font-size:11px; background:#2a2340; color:#c7a8ff; vertical-align:middle; }
+  .correct { margin-top:14px; padding-top:12px; border-top:1px solid #222a3a; }
+  .correct .q { color:#8b93a7; font-size:12.5px; margin-bottom:8px; }
+  .correct .digits { display:flex; gap:6px; flex-wrap:wrap; }
+  .correct .digits button { padding:6px 11px; min-width:34px; }
+  .correct .saved { color:#5ee0a0; font-size:12.5px; margin-top:8px; }
   .steps { list-style:none; margin:10px 0 0; padding:0; font-size:12.5px; color:#8b93a7; }
   .steps li { padding:3px 0; }
   .steps li.done { color:#5ee0a0; }
@@ -78,6 +85,10 @@
       <div class="result" id="result" style="display:none">
         <div class="label" id="resultLabel">?</div>
         <div class="conf" id="resultConf"></div>
+        <div class="correct" id="correctBox" style="display:none">
+          <div class="q">Not right? Teach it what this actually is (saved only in your browser):</div>
+          <div class="digits" id="digitPicker"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -86,6 +97,8 @@
     Genesis embedding fetched once, frozen, shared by every node (the shared-space invariant) &middot;
     query signed with a fresh in-browser Ed25519 keypair, never leaves your tab except over the P2P
     channel &middot; the beacon never sees your drawing, only an SDP handshake &middot;
+    corrections you enter personalize <em>your</em> browser only &mdash; they are never sent to the
+    swarm or any server &middot;
     source: <code>web/infer.html</code>.
   </footer>
 </div>
@@ -212,11 +225,93 @@ function loadGenesis() {
   return genesisPromise;
 }
 
+// ---- session-local personalization ----------------------------------------
+// A correction NEVER leaves this browser and never touches the swarm/gossip/
+// trust machinery -- it is pure client-side few-shot 1-NN over embedded
+// vectors the user has personally labeled, stored in localStorage. This is
+// deliberately the conservative tier: it fixes the domain-gap problem (a
+// user's own drawing style, not the training data's) for THIS user only, with
+// zero poisoning surface. Promoting a correction into the actual shared swarm
+// memory would require corroboration from independent users first (a global
+// tier, not implemented here) -- see swarmint/node/swarm_node.py's
+// _corroborate() for why an unauthenticated write can't just be trusted.
+const PERSONAL_KEY = "swarmint_personal_digits_v1";
+const PERSONAL_CAP_PER_LABEL = 12;  // bound growth; keep the most recent per digit
+const PERSONAL_RADIUS = 0.9;        // embedded vectors are unit-norm; empirical accept radius
+
+function loadPersonal() {
+  try { return JSON.parse(localStorage.getItem(PERSONAL_KEY) || "[]"); }
+  catch { return []; }
+}
+function savePersonal(list) {
+  localStorage.setItem(PERSONAL_KEY, JSON.stringify(list));
+}
+function addPersonalExample(vec, label) {
+  const list = loadPersonal();
+  list.push({ vec: Array.from(vec), label });
+  const perLabel = {};
+  const kept = [];
+  for (let i = list.length - 1; i >= 0; i--) {  // newest-first, cap per label
+    const e = list[i];
+    perLabel[e.label] = (perLabel[e.label] || 0) + 1;
+    if (perLabel[e.label] <= PERSONAL_CAP_PER_LABEL) kept.unshift(e);
+  }
+  savePersonal(kept);
+}
+function personalNearest(vec) {
+  const list = loadPersonal();
+  let best = null, bestDist = Infinity;
+  for (const e of list) {
+    let d = 0;
+    for (let i = 0; i < vec.length; i++) { const diff = vec[i] - e.vec[i]; d += diff * diff; }
+    d = Math.sqrt(d);
+    if (d < bestDist) { bestDist = d; best = e; }
+  }
+  return best && bestDist <= PERSONAL_RADIUS ? { label: best.label, dist: bestDist } : null;
+}
+
+let lastEmbedded = null;  // embedded vector of the most recently classified drawing
+
+function buildDigitPicker() {
+  const box = document.getElementById("digitPicker");
+  if (box.childElementCount) return;
+  for (let d = 0; d <= 9; d++) {
+    const b = document.createElement("button");
+    b.textContent = String(d);
+    b.onclick = () => submitCorrection(d);
+    box.appendChild(b);
+  }
+}
+
+function submitCorrection(label) {
+  if (!lastEmbedded) return;
+  addPersonalExample(lastEmbedded, label);
+  const box = document.getElementById("correctBox");
+  let saved = box.querySelector(".saved");
+  if (!saved) { saved = document.createElement("div"); saved.className = "saved"; box.appendChild(saved); }
+  saved.textContent = `saved as "${label}" -- your browser will remember this next time.`;
+  // reflect the correction immediately (session-local personalization is instant).
+  renderResult(label, null, true);
+}
+
+function renderResult(label, confidence, personalized) {
+  document.getElementById("resultLabel").innerHTML = label === null ? "?" :
+    `${label}${personalized ? '<span class="personalized">from your corrections</span>' : ""}`;
+  document.getElementById("resultConf").textContent = confidence === null ? "" :
+    `confidence ${(confidence * 100).toFixed(1)}%`;
+  document.getElementById("result").style.display = "";
+  document.getElementById("correctBox").style.display = label === null ? "none" : "";
+  buildDigitPicker();
+}
+
 async function classify() {
   const btn = document.getElementById("classify");
   btn.disabled = true;
   resetSteps();
   document.getElementById("result").style.display = "none";
+  document.getElementById("correctBox").style.display = "none";
+  const savedMsg = document.querySelector("#correctBox .saved");
+  if (savedMsg) savedMsg.remove();
   try {
     stepState("sign", "active");
     const identity = await Identity.generate(); // fresh per query -- stateless client
@@ -227,6 +322,7 @@ async function classify() {
     const genesis = await loadGenesis();
     const raw = downsampleTo8x8();
     const embedded = genesis.embedRawDigit(raw);
+    lastEmbedded = embedded;
     stepState("embed", "done");
 
     const qid = crypto.getRandomValues(new Uint8Array(8));
@@ -273,13 +369,20 @@ async function classify() {
       setTimeout(() => rej(new Error("no response from node")), 10000))]);
     stepState("answer", "done");
 
-    setStatus(response.label === null
-      ? "the node abstained (query looked off-manifold to it)."
-      : "answered directly by a swarm node over WebRTC -- no server in the loop.");
-    document.getElementById("resultLabel").textContent = response.label === null ? "?" : response.label;
-    document.getElementById("resultConf").textContent = response.label === null ? "" :
-      `confidence ${(response.confidence * 100).toFixed(1)}%`;
-    document.getElementById("result").style.display = "";
+    // Prefer a personal (session-local) match over the swarm's answer -- this is
+    // the whole point of the correction loop: it fixes YOUR domain gap (your
+    // drawing style) even when the shared genesis model can't. Never silently
+    // hides the swarm's own answer if there's no close personal match.
+    const personal = personalNearest(embedded);
+    if (personal) {
+      setStatus("matched a digit you previously corrected (session-local, no network round-trip needed for this part).");
+      renderResult(personal.label, null, true);
+    } else {
+      setStatus(response.label === null
+        ? "the node abstained (query looked off-manifold to it)."
+        : "answered directly by a swarm node over WebRTC -- no server in the loop.");
+      renderResult(response.label, response.label === null ? null : response.confidence, false);
+    }
 
     pc.close();
   } catch (e) {
