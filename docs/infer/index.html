@@ -146,16 +146,49 @@ document.getElementById("clear").onclick = () => {
 };
 
 // Downsample the 224x224 canvas to an 8x8 grid on the sklearn-digits 0..16
-// scale (mean pixel intensity per cell / 255 * 16) -- an APPROXIMATION of the
-// dataset's rendering style; hand-drawn strokes are naturally a domain shift
-// from the training data, which the status line says plainly if confidence is low.
+// scale (mean pixel intensity per cell / 255 * 16). The sklearn digits images
+// are bounding-box-normalized and centered before being shrunk to 8x8 -- a raw
+// resize of a freely-drawn digit (small/off-center/thick strokes anywhere in a
+// 224x224 canvas) looks nothing like that distribution, which tanked accuracy.
+// So: find the ink bounding box first, then crop+center+pad like the training
+// data before the final 8x8 downsample.
+function inkBoundingBox() {
+  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  let minX = canvas.width, minY = canvas.height, maxX = -1, maxY = -1;
+  for (let y = 0; y < canvas.height; y++) {
+    for (let x = 0; x < canvas.width; x++) {
+      if (data[(y * canvas.width + x) * 4] > 32) { // R channel, ignore near-black noise
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < minX || maxY < minY) return null; // nothing drawn
+  return { minX, minY, maxX, maxY };
+}
+
 function downsampleTo8x8() {
+  const bbox = inkBoundingBox();
+  const size = 8;
   const tmp = document.createElement("canvas");
-  tmp.width = 8; tmp.height = 8;
+  tmp.width = size; tmp.height = size;
   const tctx = tmp.getContext("2d");
   tctx.imageSmoothingEnabled = true;
-  tctx.drawImage(canvas, 0, 0, 8, 8);
-  const { data } = tctx.getImageData(0, 0, 8, 8);
+  tctx.fillStyle = "#000"; tctx.fillRect(0, 0, size, size);
+
+  if (bbox) {
+    // Square, padded crop around the ink -- matches the centered, roughly
+    // equal-margin framing of the sklearn digits source images.
+    const w = bbox.maxX - bbox.minX, h = bbox.maxY - bbox.minY;
+    const cx = (bbox.minX + bbox.maxX) / 2, cy = (bbox.minY + bbox.maxY) / 2;
+    const pad = 1.6; // extra margin so strokes don't touch the frame edge
+    const side = Math.max(w, h) * pad || 1;
+    const sx = Math.max(0, cx - side / 2), sy = Math.max(0, cy - side / 2);
+    const sSide = Math.min(side, canvas.width - sx, canvas.height - sy);
+    tctx.drawImage(canvas, sx, sy, sSide, sSide, 0, 0, size, size);
+  }
+
+  const { data } = tctx.getImageData(0, 0, size, size);
   const out = new Float32Array(64);
   for (let i = 0; i < 64; i++) out[i] = (data[i * 4] / 255) * 16; // R channel (grayscale strokes)
   return out;
