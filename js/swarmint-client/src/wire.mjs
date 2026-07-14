@@ -44,6 +44,26 @@ export function unpackInferenceResponse(data) {
   return { id: body.id, label: body.l, confidence: body.c };
 }
 
+// ---- correction claim: submit a labeled correction to the swarm (not just
+// this browser). Mirrors wire.py's pack_correction_claim/unpack_correction_ack.
+// The node gates this through corroboration (see SwarmNode.submit_correction_claim)
+// -- it is NEVER trusted on its own, so the ack reports the gate's outcome, not
+// a guarantee the shared model changed.
+
+export function packCorrectionClaim(qid, xFloat32, label) {
+  return pack({
+    v: WIRE_VERSION, k: "correction", id: qid,
+    x: new Uint8Array(xFloat32.buffer, xFloat32.byteOffset, xFloat32.byteLength),
+    l: label,
+  });
+}
+
+export function unpackCorrectionAck(data) {
+  const body = unpack(data);
+  if (body.k !== "correction_ack") throw new Error(`expected 'correction_ack', got '${body.k}'`);
+  return { id: body.id, promoted: body.promoted, corroborated: body.corroborated };
+}
+
 export function bytesToFloat32(u8) {
   // u8 comes from msgpack as Uint8Array; must be 4-byte aligned to view in place.
   const buf = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);

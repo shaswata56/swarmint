@@ -100,14 +100,22 @@ class WebRTCAnswerer:
             kind = wire.peek_kind(result.body)
         except Exception:
             return
-        if kind != "query":
-            return  # this bridge only answers inference queries, nothing else
-        payload = wire.unpack_inference_query(result.body)
-        label, confidence = self.node.answer_query(payload["x"])  # PURE, untouched
-        _record_browser_query(result.sender, label, confidence)
-        if self.on_query is not None:
-            self.on_query(result.sender, label, confidence)
-        body = wire.pack_inference_response(payload["id"], label, confidence)
+        if kind == "query":
+            payload = wire.unpack_inference_query(result.body)
+            label, confidence = self.node.answer_query(payload["x"])  # PURE, untouched
+            _record_browser_query(result.sender, label, confidence)
+            if self.on_query is not None:
+                self.on_query(result.sender, label, confidence)
+            body = wire.pack_inference_response(payload["id"], label, confidence)
+        elif kind == "correction":
+            payload = wire.unpack_correction_claim(result.body)
+            # result.sender is the browser's per-query signing pubkey-derived id --
+            # ALWAYS routed through the untrusted-claim gate, never node.observe()
+            # or model.learn() directly (see submit_correction_claim's docstring).
+            outcome = self.node.submit_correction_claim(payload["x"], payload["label"], result.sender)
+            body = wire.pack_correction_ack(payload["id"], outcome["promoted"], outcome["corroborated"])
+        else:
+            return  # this bridge only answers queries/corrections, nothing else
         envelope = self.identity.sign_envelope(body, ts=time.time())
         channel.send(envelope)
 

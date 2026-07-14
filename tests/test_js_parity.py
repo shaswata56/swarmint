@@ -143,6 +143,39 @@ def test_js_verify_then_unpack_response_uses_inner_body_not_envelope():
     assert abs(result["confidence"] - 0.87) < 1e-6
 
 
+def test_js_correction_claim_unpacks_in_python():
+    if os.environ.get("SWARM_JS_TESTS") != "1":
+        print("skip test_js_correction_claim_unpacks_in_python (set SWARM_JS_TESTS=1)")
+        return
+    import numpy as np
+
+    from swarmint.network import wire
+
+    x = np.array([0.1, -0.2, 0.3, 0.4, -0.5], dtype=np.float32)
+    qid = os.urandom(8)
+    result = _run_js({"correction": {"xFloat32Hex": x.tobytes().hex(), "qidHex": qid.hex(),
+                                     "label": 6}})["correction"]
+    packed = bytes.fromhex(result["packedHex"])
+    decoded = wire.unpack_correction_claim(packed)
+    assert decoded["id"] == qid
+    assert np.allclose(decoded["x"], x)
+    assert decoded["label"] == 6
+
+
+def test_python_correction_ack_unpacks_in_js():
+    if os.environ.get("SWARM_JS_TESTS") != "1":
+        print("skip test_python_correction_ack_unpacks_in_js (set SWARM_JS_TESTS=1)")
+        return
+    from swarmint.network import wire
+
+    qid = os.urandom(8)
+    packed = wire.pack_correction_ack(qid, promoted=True, corroborated=True)
+    result = _run_js({"unpackCorrectionAck": {"dataHex": packed.hex()}})["unpackCorrectionAck"]
+    assert bytes.fromhex(result["idHex"]) == qid
+    assert result["promoted"] is True
+    assert result["corroborated"] is True
+
+
 def test_js_embedding_matches_python_for_a_real_digit():
     if os.environ.get("SWARM_JS_TESTS") != "1":
         print("skip test_js_embedding_matches_python_for_a_real_digit (set SWARM_JS_TESTS=1)")

@@ -97,15 +97,17 @@
     Genesis embedding fetched once, frozen, shared by every node (the shared-space invariant) &middot;
     query signed with a fresh in-browser Ed25519 keypair, never leaves your tab except over the P2P
     channel &middot; the beacon never sees your drawing, only an SDP handshake &middot;
-    corrections you enter personalize <em>your</em> browser only &mdash; they are never sent to the
-    swarm or any server &middot;
+    corrections you enter personalize <em>your</em> browser instantly, AND are submitted to the swarm
+    node as an anonymous claim &mdash; the node only ever commits a claim to its shared model once
+    independent users corroborate the same correction (never from a single submission) &middot;
     source: <code>web/infer.html</code>.
   </footer>
 </div>
 
 <script type="module">
 import { Identity } from "./swarmint-client/identity.mjs";
-import { packInferenceQuery, unpackInferenceResponse } from "./swarmint-client/wire.mjs";
+import { packInferenceQuery, unpackInferenceResponse, packCorrectionClaim, unpackCorrectionAck }
+  from "./swarmint-client/wire.mjs";
 import { GenesisEmbedding } from "./swarmint-client/embedding.mjs";
 import { verifyEnvelope } from "./swarmint-client/identity.mjs";
 import { unpackEnvelope } from "./swarmint-client/wire.mjs";
@@ -272,6 +274,56 @@ function personalNearest(vec) {
 
 let lastEmbedded = null;  // embedded vector of the most recently classified drawing
 
+// Shared WebRTC connect: offer -> beacon /signal -> answer -> wait for the data
+// channel to open. Used both by a classify query and a correction submission --
+// each gets its OWN short-lived peer connection (no long-held channel), since a
+// correction may be sent well after the original query's channel already closed.
+async function openSwarmChannel(beaconUrl) {
+  const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+  const channel = pc.createDataChannel("swarmint");
+  const channelOpen = new Promise((resolve) => { channel.onopen = () => resolve(); });
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  const resp = await fetch(beaconUrl + "/signal", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sdp: pc.localDescription.sdp, type: pc.localDescription.type }),
+  });
+  if (!resp.ok) throw new Error(`beacon /signal returned ${resp.status}`);
+  const answer = await resp.json();
+  await pc.setRemoteDescription(answer);
+  await Promise.race([channelOpen, new Promise((_, rej) =>
+    setTimeout(() => rej(new Error("data channel timed out (NAT traversal failed?)")), 15000))]);
+  return { pc, channel };
+}
+
+// Submits a correction to the swarm as an anonymous, untrusted claim -- the node
+// gates it through corroboration (SwarmNode.submit_correction_claim); this
+// browser will basically never see "promoted: true" itself (that only happens
+// once independent users have made the same correction), but the ack at least
+// confirms the node received and quarantined it, so it isn't lost when the
+// original query's own claim is the first of the (eventually) corroborating set.
+async function submitCorrectionToSwarm(vector, label) {
+  const beaconUrl = document.getElementById("beacon").value.replace(/\/+$/, "");
+  const identity = await Identity.generate();  // fresh keypair -- this claim's sender id
+  const qid = crypto.getRandomValues(new Uint8Array(8));
+  const body = packCorrectionClaim(qid, vector, label);
+  const envelope = await identity.signEnvelope(body, Date.now() / 1000);
+  const { pc, channel } = await openSwarmChannel(beaconUrl);
+  const gotAck = new Promise((resolve, reject) => {
+    channel.onmessage = async (ev) => {
+      const data = new Uint8Array(await ev.data.arrayBuffer ? await ev.data.arrayBuffer() : ev.data);
+      const res = await verifyEnvelope(data, unpackEnvelope);
+      if (!res.ok) { reject(new Error("ack failed verification: " + res.reason)); return; }
+      resolve(unpackCorrectionAck(res.body));
+    };
+  });
+  channel.send(envelope);
+  const ack = await Promise.race([gotAck, new Promise((_, rej) =>
+    setTimeout(() => rej(new Error("no ack from node")), 10000))]);
+  pc.close();
+  return ack;
+}
+
 function buildDigitPicker() {
   const box = document.getElementById("digitPicker");
   if (box.childElementCount) return;
@@ -285,13 +337,30 @@ function buildDigitPicker() {
 
 function submitCorrection(label) {
   if (!lastEmbedded) return;
-  addPersonalExample(lastEmbedded, label);
+  const vector = lastEmbedded;
+  addPersonalExample(vector, label);
   const box = document.getElementById("correctBox");
   let saved = box.querySelector(".saved");
   if (!saved) { saved = document.createElement("div"); saved.className = "saved"; box.appendChild(saved); }
-  saved.textContent = `saved as "${label}" -- your browser will remember this next time.`;
-  // reflect the correction immediately (session-local personalization is instant).
+  saved.textContent = `saved as "${label}" locally -- submitting to the swarm...`;
+  // reflect the correction immediately (session-local personalization is instant,
+  // independent of whether the swarm submission below succeeds or is quarantined).
   renderResult(label, null, true);
+
+  // Fire-and-forget: this outlives nothing (the tab could close right after),
+  // which is exactly the point -- a lone submission almost never gets "promoted"
+  // (it needs independent corroboration), but it's now on the node's radar
+  // instead of vanishing with this tab.
+  submitCorrectionToSwarm(vector, label).then((ack) => {
+    saved.textContent = ack.promoted
+      ? `saved locally, and PROMOTED into the swarm's shared model (corroborated by other users' corrections too).`
+      : `saved locally, and submitted to the swarm as a claim -- it commits to the shared model only once ` +
+        `independent users make the same correction (not from this alone).`;
+  }).catch((e) => {
+    console.error(e);
+    saved.textContent = `saved locally as "${label}". Couldn't reach the swarm to submit this correction ` +
+      `(${e.message || e}) -- kept locally only for now.`;
+  });
 }
 
 function renderResult(label, confidence, personalized) {
@@ -332,10 +401,10 @@ async function classify() {
     stepState("signal", "active");
     setStatus("signaling via the beacon...");
     const beaconUrl = document.getElementById("beacon").value.replace(/\/+$/, "");
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
-    const channel = pc.createDataChannel("swarmint");
 
-    const channelOpen = new Promise((resolve) => { channel.onopen = () => resolve(); });
+    stepState("channel", "active");
+    setStatus("opening P2P data channel to a swarm node...");
+    const { pc, channel } = await openSwarmChannel(beaconUrl);
     const gotAnswer = new Promise((resolve, reject) => {
       channel.onmessage = async (ev) => {
         const data = new Uint8Array(await ev.data.arrayBuffer ? await ev.data.arrayBuffer() : ev.data);
@@ -344,22 +413,7 @@ async function classify() {
         resolve(unpackInferenceResponse(res.body));
       };
     });
-
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    const resp = await fetch(beaconUrl + "/signal", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sdp: pc.localDescription.sdp, type: pc.localDescription.type }),
-    });
-    if (!resp.ok) throw new Error(`beacon /signal returned ${resp.status}`);
-    const answer = await resp.json();
-    await pc.setRemoteDescription(answer);
     stepState("signal", "done");
-
-    stepState("channel", "active");
-    setStatus("opening P2P data channel to a swarm node...");
-    await Promise.race([channelOpen, new Promise((_, rej) =>
-      setTimeout(() => rej(new Error("data channel timed out (NAT traversal failed?)")), 15000))]);
     stepState("channel", "done");
 
     stepState("answer", "active");

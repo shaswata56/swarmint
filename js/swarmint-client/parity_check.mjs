@@ -4,7 +4,8 @@
 // browser would import — no test-only branching in the client itself.
 import { readFileSync, writeFileSync } from "fs";
 import { Identity, deriveNodeId, verifyEnvelope } from "./src/identity.mjs";
-import { packInferenceQuery, unpackEnvelope, unpackInferenceResponse } from "./src/wire.mjs";
+import { packInferenceQuery, unpackEnvelope, unpackInferenceResponse,
+        packCorrectionClaim, unpackCorrectionAck } from "./src/wire.mjs";
 import { GenesisEmbedding, normalizeRawPixels } from "./src/embedding.mjs";
 
 function hex(u8) { return Buffer.from(u8).toString("hex"); }
@@ -61,6 +62,20 @@ async function main() {
       const r = unpackInferenceResponse(res.body);
       out.verifyThenUnpackResponse = { ok: true, idHex: hex(r.id), label: r.label, confidence: r.confidence };
     }
+  }
+
+  if (job.correction) {
+    const xBytes = fromHex(job.correction.xFloat32Hex);
+    const x = new Float32Array(xBytes.buffer, xBytes.byteOffset, xBytes.byteLength / 4);
+    const qid = fromHex(job.correction.qidHex);
+    const packed = packCorrectionClaim(qid, x, job.correction.label);
+    out.correction = { packedHex: hex(packed) };
+  }
+
+  if (job.unpackCorrectionAck) {
+    const data = fromHex(job.unpackCorrectionAck.dataHex);
+    const a = unpackCorrectionAck(data);
+    out.unpackCorrectionAck = { idHex: hex(a.id), promoted: a.promoted, corroborated: a.corroborated };
   }
 
   if (job.embed) {

@@ -172,6 +172,41 @@ class SwarmNode:
             outcome = 1.0
         self.trust[msg.sender] = (1 - TRUST_ALPHA) * t + TRUST_ALPHA * outcome
 
+    # ---- browser corrections: anonymous, untrusted writes ----
+
+    def submit_correction_claim(self, x: np.ndarray, y: int, sender_id) -> dict:
+        """A browser's "you got this wrong, it's actually Y" is an ANONYMOUS,
+        UNAUTHENTICATED write -- unlike a gossip peer, it has no trust EMA built
+        from prior honest merges (calibrate_trust), and its identity is a fresh
+        keypair per query BY DESIGN (infer.html), so nothing stops one browser
+        from minting many senders. It must therefore NEVER take the `receive()`
+        fast path that auto-accepts prototypes for locally-verifiable classes --
+        that path exists for peers who already earned trust. Every browser claim
+        goes through the SAME corroboration gate untrusted gossip does: only
+        promoted once CORROBORATION distinct senders claim the same label in the
+        same region (see _corroborate()), so a lone poisoner never reaches quorum
+        and only genuine agreement across independent users moves the model.
+
+        Returns {"corroborated": bool, "promoted": bool} -- "corroborated" means
+        this claim reached quorum and was attempted; "promoted" means it actually
+        committed (still gated by the same holdout-accuracy check merges use)."""
+        from ..core.prototype_model import Prototype
+        p = Prototype(vector=np.asarray(x, dtype=np.float32), label=int(y), weight=1.0)
+        if not self._corroborate(p, sender_id):
+            return {"corroborated": False, "promoted": False}
+
+        before = self._holdout_accuracy(self.model)
+        candidate = self.model.merged_with([p], self.node_id, sender_trust=TRUST_INIT)
+        after = self._holdout_accuracy(candidate)
+        degraded = after < before - DEGRADE_EPS
+        contradictory = candidate.conflicts > candidate.accepted
+        if degraded or contradictory or candidate.accepted == 0:
+            self.merges_rejected += 1
+            return {"corroborated": True, "promoted": False}
+        self.model = candidate
+        self.merges_ok += 1
+        return {"corroborated": True, "promoted": True}
+
     # ---- distributed inference (mixture of experts) ----
 
     def answer_query(self, x: np.ndarray):

@@ -56,7 +56,57 @@ def test_recent_browser_clients_bounded_fifo():
     assert len(wa._recent_browser_clients) == wa.RECENT_BROWSER_CLIENTS_MAX  # oldest evicted, never unbounded
 
 
+def test_correction_message_routes_through_corroboration_gate_not_direct_learn():
+    """A browser's "correction" message must dispatch to submit_correction_claim
+    (quarantine + N-distinct-sender corroboration), never straight to
+    node.observe()/model.learn() -- see swarm_node.py's submit_correction_claim
+    docstring for why an anonymous per-query keypair can't skip that gate. This
+    drives _handle_message end-to-end: sign a real envelope, dispatch it, and
+    verify the ack that comes back is itself a validly signed correction_ack
+    reporting "not yet corroborated" for a lone claim."""
+    wa = _import_or_skip()
+    if wa is None:
+        return
+    import random
+    import numpy as np
+
+    from swarmint.network import wire
+    from swarmint.network.identity import Identity, ReplayGuard, verify_envelope
+    from swarmint.network.simbus import SimBus
+    from swarmint.node.swarm_node import SwarmNode
+
+    node_identity = Identity.generate()
+    bus = SimBus(rng=random.Random(0))
+    node = SwarmNode(node_id=0, topic=1, bus=bus, rng=random.Random(1), n_classes=10)
+
+    answerer = wa.WebRTCAnswerer(node_identity, node)
+
+    browser_identity = Identity.generate()
+    x = np.zeros(9, dtype=np.float32)
+    qid = b"\x01" * 8
+    body = wire.pack_correction_claim(qid, x, label=6)
+    envelope = browser_identity.sign_envelope(body, ts=__import__("time").time())
+
+    sent = []
+
+    class FakeChannel:
+        def send(self, data):
+            sent.append(data)
+
+    answerer._handle_message(FakeChannel(), envelope)
+
+    assert len(sent) == 1, "a correction message must get exactly one signed ack back"
+    guard = ReplayGuard()
+    result = verify_envelope(sent[0], guard)
+    assert result.ok, result.reason
+    ack = wire.unpack_correction_ack(result.body)
+    assert ack["id"] == qid
+    assert ack["promoted"] is False       # a single, uncorroborated claim never commits
+    assert ack["corroborated"] is False
+
+
 if __name__ == "__main__":
     test_recent_browser_clients_records_and_windows()
     test_recent_browser_clients_bounded_fifo()
+    test_correction_message_routes_through_corroboration_gate_not_direct_learn()
     print("ok")

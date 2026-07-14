@@ -106,6 +106,36 @@ def unpack_inference_response(data: bytes) -> dict:
     return {"id": body["id"], "label": body["l"], "confidence": body["c"]}
 
 
+# ---- correction claim: an anonymous browser's "this label is wrong" submission.
+# NEVER a direct model.learn() -- SwarmNode.submit_correction_claim() always routes
+# it through the same quarantine + N-distinct-sender corroboration gate untrusted
+# gossip uses (see swarm_node.py's _corroborate()), since a fresh per-query browser
+# keypair has no earned trust to skip that check. The ack reports the gate outcome
+# (quarantined vs promoted), not a guarantee the shared model changed.
+
+def pack_correction_claim(qid: bytes, x: np.ndarray, label: int) -> bytes:
+    return _pack({"v": WIRE_VERSION, "k": "correction", "id": qid,
+                  "x": np.asarray(x, dtype=np.float32).tobytes(), "l": int(label)})
+
+
+def unpack_correction_claim(data: bytes) -> dict:
+    body = _unpack(data)
+    assert body["k"] == "correction"
+    return {"id": body["id"], "x": np.frombuffer(body["x"], dtype=np.float32).copy(),
+            "label": body["l"]}
+
+
+def pack_correction_ack(qid: bytes, promoted: bool, corroborated: bool) -> bytes:
+    return _pack({"v": WIRE_VERSION, "k": "correction_ack", "id": qid,
+                  "promoted": bool(promoted), "corroborated": bool(corroborated)})
+
+
+def unpack_correction_ack(data: bytes) -> dict:
+    body = _unpack(data)
+    assert body["k"] == "correction_ack"
+    return {"id": body["id"], "promoted": body["promoted"], "corroborated": body["corroborated"]}
+
+
 # ---- calibration: chunked because a 60-sample holdout doesn't fit one datagram ----
 
 def pack_calibration_query(qid: bytes, chunk_index: int, total_chunks: int, xs: np.ndarray) -> bytes:
