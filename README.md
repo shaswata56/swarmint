@@ -92,6 +92,21 @@ from a corporate NAT: **37/40 = 0.925**, i.e. the centralized ceiling.
 > The Byzantine-inference result (0.79 with 30% liars) assumes *calibrated* trust
 > and is a separate claim this front door does not inherit.
 
+### From a browser — peer-first, not a gateway
+
+`web/infer.html` lets a browser query the swarm **directly over WebRTC**, not
+through an HTTP inference endpoint. The browser signs its own query
+(Ed25519, in-JS), embeds the digit through the same frozen genesis space
+(exported to JSON, applied client-side), and opens a data channel straight to
+a live swarm node — the beacon only relays the SDP/ICE handshake (the same
+signaling role it already plays for UDP hole-punching) and is never in the
+data path once the channel opens. See [`web/README.md`](web/README.md) to run
+it, and `swarmint/sim/run_webrtc_infer.py` / `run_webrtc_signaling.py` for the
+real end-to-end proofs (real `aiortc` execution, real HTTP signaling — a
+`SwarmNode` seeded with real digits correctly answers a signed query over a
+data channel, with **zero changes** to `SwarmNode`/`InferenceService`).
+Requires `pip install -e .[web]` (adds `aiortc`) on the answering node/beacon.
+
 ## Quickstart (offline)
 
 ```bash

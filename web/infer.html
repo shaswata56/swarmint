@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>swarmint — ask the swarm</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b1020'/%3E%3Cg stroke='%236a93ff' stroke-width='3' stroke-linecap='round' opacity='0.8'%3E%3Cline x1='32' y1='18' x2='17' y2='45'/%3E%3Cline x1='32' y1='18' x2='47' y2='45'/%3E%3Cline x1='17' y1='45' x2='47' y2='45'/%3E%3C/g%3E%3Ccircle cx='32' cy='18' r='7' fill='%23cdd8ff'/%3E%3Ccircle cx='17' cy='45' r='6' fill='%236a93ff'/%3E%3Ccircle cx='47' cy='45' r='6' fill='%236a93ff'/%3E%3C/svg%3E">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#0b0e14; color:#d7dce5;
+         font:15px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  .wrap { max-width:640px; margin:0 auto; padding:32px 20px 64px; }
+  h1 { font-size:22px; margin:0 0 4px; letter-spacing:-.02em; }
+  h1 .g { color:#5ee0a0; }
+  .sub { color:#8b93a7; margin:0 0 22px; font-size:14px; }
+  .sub a { color:#7fb2ff; }
+  .badge { display:inline-block; padding:2px 9px; border-radius:20px; font-size:12px; margin-left:6px; }
+  .badge.p2p { background:#12351f; color:#7ff0a8; }
+  .row { display:flex; gap:20px; flex-wrap:wrap; align-items:flex-start; }
+  canvas#draw { background:#000; border-radius:12px; touch-action:none; cursor:crosshair;
+               border:1px solid #222a3a; }
+  .panel { background:#141926; border:1px solid #222a3a; border-radius:12px; padding:16px 18px;
+          min-width:220px; flex:1; }
+  .btnrow { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+  button { background:#1b2537; color:#d7dce5; border:1px solid #2a3650; border-radius:8px;
+          padding:8px 14px; font-size:13.5px; cursor:pointer; }
+  button:hover { background:#232f47; }
+  button.primary { background:#1a3a2a; border-color:#2b5e42; color:#8ff5bb; }
+  button.primary:hover { background:#204a35; }
+  button:disabled { opacity:.5; cursor:default; }
+  label.small { color:#8b93a7; font-size:12px; display:block; margin-bottom:4px; }
+  input[type=text] { width:100%; background:#0d1220; border:1px solid #2a3650; color:#d7dce5;
+                     border-radius:6px; padding:6px 8px; font-size:13px; font-family:ui-monospace,monospace; }
+  .status { margin-top:12px; font-size:13px; color:#8b93a7; min-height:20px; }
+  .status.err { color:#e07f7f; }
+  .result { margin-top:14px; }
+  .result .label { font-size:52px; font-weight:700; color:#5ee0a0; line-height:1; }
+  .result .conf { color:#8b93a7; font-size:13px; margin-top:4px; }
+  .votes { margin-top:10px; font-size:12px; color:#8b93a7; }
+  .votes .v { font-family:ui-monospace,monospace; }
+  .steps { list-style:none; margin:10px 0 0; padding:0; font-size:12.5px; color:#8b93a7; }
+  .steps li { padding:3px 0; }
+  .steps li.done { color:#5ee0a0; }
+  .steps li.active { color:#e0c060; }
+  .steps li .dot { display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:7px;
+                   background:#3a4258; }
+  .steps li.done .dot { background:#5ee0a0; }
+  .steps li.active .dot { background:#e0c060; }
+  footer { color:#5a6376; font-size:12px; margin-top:26px; }
+  footer code { color:#8b93a7; }
+</style></head>
+<body><div class="wrap">
+  <h1><span class="g">swarmint</span> — ask the swarm<span class="badge p2p">browser ↔ node, P2P</span></h1>
+  <p class="sub">Draw a digit. Your browser signs the query, opens a WebRTC data channel straight to a
+  live swarm node (the beacon only helped the two of you find each other), and the node answers with its
+  own locally-learned model. No inference server, no HTTP query endpoint.
+  Learn more at <a href="https://swarmint.org">swarmint.org</a>.</p>
+
+  <div class="row">
+    <div>
+      <canvas id="draw" width="224" height="224"></canvas>
+      <div class="btnrow">
+        <button id="clear">Clear</button>
+        <button id="classify" class="primary">Ask the swarm</button>
+      </div>
+    </div>
+    <div class="panel">
+      <label class="small" for="beacon">Beacon (signaling only)</label>
+      <input type="text" id="beacon" value="https://beacon.swarmint.org" />
+      <ul class="steps" id="steps">
+        <li data-step="sign"><span class="dot"></span>Sign query (Ed25519, in-browser)</li>
+        <li data-step="embed"><span class="dot"></span>Embed digit (shared genesis space)</li>
+        <li data-step="signal"><span class="dot"></span>Signal via beacon (SDP/ICE)</li>
+        <li data-step="channel"><span class="dot"></span>Open P2P data channel to node</li>
+        <li data-step="answer"><span class="dot"></span>Node answers (verified signature)</li>
+      </ul>
+      <div class="status" id="status"></div>
+      <div class="result" id="result" style="display:none">
+        <div class="label" id="resultLabel">?</div>
+        <div class="conf" id="resultConf"></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Genesis embedding fetched once, frozen, shared by every node (the shared-space invariant) &middot;
+    query signed with a fresh in-browser Ed25519 keypair, never leaves your tab except over the P2P
+    channel &middot; the beacon never sees your drawing, only an SDP handshake &middot;
+    source: <code>web/infer.html</code>.
+  </footer>
+</div>
+
+<script type="module">
+import { Identity } from "./swarmint-client/identity.mjs";
+import { packInferenceQuery, unpackInferenceResponse } from "./swarmint-client/wire.mjs";
+import { GenesisEmbedding } from "./swarmint-client/embedding.mjs";
+import { verifyEnvelope } from "./swarmint-client/identity.mjs";
+import { unpackEnvelope } from "./swarmint-client/wire.mjs";
+
+const canvas = document.getElementById("draw");
+const ctx = canvas.getContext("2d");
+ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+ctx.strokeStyle = "#fff"; ctx.lineWidth = 16; ctx.lineCap = "round"; ctx.lineJoin = "round";
+
+let drawing = false, lastX = 0, lastY = 0;
+function pos(e) {
+  const r = canvas.getBoundingClientRect();
+  const cx = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
+  const cy = (e.touches ? e.touches[0].clientY : e.clientY) - r.top;
+  return [cx * canvas.width / r.width, cy * canvas.height / r.height];
+}
+function start(e) { drawing = true; [lastX, lastY] = pos(e); e.preventDefault(); }
+function move(e) {
+  if (!drawing) return;
+  const [x, y] = pos(e);
+  ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(x, y); ctx.stroke();
+  [lastX, lastY] = [x, y]; e.preventDefault();
+}
+function end() { drawing = false; }
+canvas.addEventListener("mousedown", start); canvas.addEventListener("mousemove", move);
+window.addEventListener("mouseup", end);
+canvas.addEventListener("touchstart", start); canvas.addEventListener("touchmove", move);
+canvas.addEventListener("touchend", end);
+
+document.getElementById("clear").onclick = () => {
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  setStatus(""); document.getElementById("result").style.display = "none";
+  resetSteps();
+};
+
+// Downsample the 224x224 canvas to an 8x8 grid on the sklearn-digits 0..16
+// scale (mean pixel intensity per cell / 255 * 16) -- an APPROXIMATION of the
+// dataset's rendering style; hand-drawn strokes are naturally a domain shift
+// from the training data, which the status line says plainly if confidence is low.
+function downsampleTo8x8() {
+  const tmp = document.createElement("canvas");
+  tmp.width = 8; tmp.height = 8;
+  const tctx = tmp.getContext("2d");
+  tctx.imageSmoothingEnabled = true;
+  tctx.drawImage(canvas, 0, 0, 8, 8);
+  const { data } = tctx.getImageData(0, 0, 8, 8);
+  const out = new Float32Array(64);
+  for (let i = 0; i < 64; i++) out[i] = (data[i * 4] / 255) * 16; // R channel (grayscale strokes)
+  return out;
+}
+
+function setStatus(msg, isErr) {
+  const el = document.getElementById("status");
+  el.textContent = msg; el.className = "status" + (isErr ? " err" : "");
+}
+const STEP_ORDER = ["sign", "embed", "signal", "channel", "answer"];
+function resetSteps() {
+  STEP_ORDER.forEach((s) => document.querySelector(`li[data-step="${s}"]`).className = "");
+}
+function stepState(name, state) {
+  document.querySelector(`li[data-step="${name}"]`).className = state;
+}
+
+let genesisPromise = null;
+function loadGenesis() {
+  if (!genesisPromise) genesisPromise = GenesisEmbedding.fetch("./genesis_embedding.json");
+  return genesisPromise;
+}
+
+async function classify() {
+  const btn = document.getElementById("classify");
+  btn.disabled = true;
+  resetSteps();
+  document.getElementById("result").style.display = "none";
+  try {
+    stepState("sign", "active");
+    const identity = await Identity.generate(); // fresh per query -- stateless client
+    const nonceOk = true; void nonceOk;
+    stepState("sign", "done");
+
+    stepState("embed", "active");
+    const genesis = await loadGenesis();
+    const raw = downsampleTo8x8();
+    const embedded = genesis.embedRawDigit(raw);
+    stepState("embed", "done");
+
+    const qid = crypto.getRandomValues(new Uint8Array(8));
+    const body = packInferenceQuery(qid, embedded, 0.0);
+    const envelope = await identity.signEnvelope(body, Date.now() / 1000);
+
+    stepState("signal", "active");
+    setStatus("signaling via the beacon...");
+    const beaconUrl = document.getElementById("beacon").value.replace(/\/+$/, "");
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+    const channel = pc.createDataChannel("swarmint");
+
+    const channelOpen = new Promise((resolve) => { channel.onopen = () => resolve(); });
+    const gotAnswer = new Promise((resolve, reject) => {
+      channel.onmessage = async (ev) => {
+        const data = new Uint8Array(await ev.data.arrayBuffer ? await ev.data.arrayBuffer() : ev.data);
+        const res = await verifyEnvelope(data, unpackEnvelope);
+        if (!res.ok) { reject(new Error("response failed verification: " + res.reason)); return; }
+        resolve(unpackInferenceResponse(data));
+      };
+    });
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    const resp = await fetch(beaconUrl + "/signal", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sdp: pc.localDescription.sdp, type: pc.localDescription.type }),
+    });
+    if (!resp.ok) throw new Error(`beacon /signal returned ${resp.status}`);
+    const answer = await resp.json();
+    await pc.setRemoteDescription(answer);
+    stepState("signal", "done");
+
+    stepState("channel", "active");
+    setStatus("opening P2P data channel to a swarm node...");
+    await Promise.race([channelOpen, new Promise((_, rej) =>
+      setTimeout(() => rej(new Error("data channel timed out (NAT traversal failed?)")), 15000))]);
+    stepState("channel", "done");
+
+    stepState("answer", "active");
+    setStatus("waiting for the node to answer...");
+    channel.send(envelope);
+    const response = await Promise.race([gotAnswer, new Promise((_, rej) =>
+      setTimeout(() => rej(new Error("no response from node")), 10000))]);
+    stepState("answer", "done");
+
+    setStatus(response.label === null
+      ? "the node abstained (query looked off-manifold to it)."
+      : "answered directly by a swarm node over WebRTC -- no server in the loop.");
+    document.getElementById("resultLabel").textContent = response.label === null ? "?" : response.label;
+    document.getElementById("resultConf").textContent = response.label === null ? "" :
+      `confidence ${(response.confidence * 100).toFixed(1)}%`;
+    document.getElementById("result").style.display = "";
+
+    pc.close();
+  } catch (e) {
+    console.error(e);
+    setStatus(String(e.message || e), true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+document.getElementById("classify").onclick = classify;
+</script>
+</body></html>

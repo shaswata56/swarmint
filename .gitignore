@@ -29,3 +29,9 @@ scikit_learn_data/
 Thumbs.db
 .idea/
 .vscode/
+
+# JS client (js/swarmint-client): deps installed via `npm install`, not vendored.
+# web/vendor/ IS committed — those are the browser-ready copies infer.html loads
+# directly with no build step, deliberately checked in for a zero-install page.
+js/swarmint-client/node_modules/
+js/swarmint-client/package-lock.json

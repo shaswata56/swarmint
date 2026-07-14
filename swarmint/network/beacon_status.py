@@ -344,21 +344,78 @@ window.__INITIAL__ = /*__INITIAL__*/null;
 </body></html>"""
 
 
+_live_answerers = {}  # id(answerer) -> WebRTCAnswerer; tracked so we can close them (see below)
+
+
+async def _handle_signal(net, writer, body: bytes) -> None:
+    """POST /signal {sdp, type} -> {sdp, type}: one WebRTC offer/answer exchange.
+    A fresh WebRTCAnswerer per request (one RTCPeerConnection per browser tab),
+    wired to net.node (the beacon's own live SwarmNode) — answer_query() is the
+    exact same PURE function UDP queries use. The connection must outlive this
+    HTTP request (the data channel opens after this response), so it's tracked
+    in _live_answerers and self-removes on ICE close/failed — otherwise aiortc's
+    background ICE tasks for an abandoned handshake never get GC'd."""
+    import json
+
+    from .webrtc_answerer import WebRTCAnswerer
+    try:
+        req = json.loads(body.decode("utf-8"))
+        offer_sdp, offer_type = req["sdp"], req["type"]
+    except Exception as e:
+        payload = json.dumps({"error": f"bad request: {e}"}).encode("utf-8")
+        writer.write(b"HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\n"
+                     b"Content-Length: %d\r\nConnection: close\r\n\r\n" % len(payload) + payload)
+        return
+    answerer = WebRTCAnswerer(net.identity, net.node)
+    key = id(answerer)
+    _live_answerers[key] = answerer
+
+    @answerer.pc.on("connectionstatechange")
+    async def _on_state_change():
+        if answerer.pc.connectionState in ("closed", "failed", "disconnected"):
+            _live_answerers.pop(key, None)
+            await answerer.close()
+
+    answer = await answerer.accept_offer(offer_sdp, offer_type)
+    payload = json.dumps({"sdp": answer.sdp, "type": answer.type}).encode("utf-8")
+    writer.write(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                 b"Access-Control-Allow-Origin: *\r\n"
+                 b"Content-Length: %d\r\nCache-Control: no-store\r\n"
+                 b"Connection: close\r\n\r\n" % len(payload) + payload)
+
+
 async def serve(net, host: str, port: int, start_time: float) -> asyncio.AbstractServer:
     """Start the status HTTP server bound to (host, port). Returns the server so
-    the caller can close it on shutdown. Handles only GET; everything else 404s."""
+    the caller can close it on shutdown. Handles GET (status/page) and one POST
+    (WebRTC SDP signaling — see _handle_signal); everything else 404s.
+
+    Signaling only: this endpoint exchanges SDP/ICE so a browser and a
+    WebRTC-capable node can establish a DIRECT data channel — the beacon is never
+    in the data path afterward (same role it already plays for UDP hole-punch
+    signaling). The node answering here is net.node (the beacon's OWN SwarmNode,
+    already live on the real swarm) — the first WebRTC-capable answerer; other
+    nodes can register additional answerers with this same endpoint later."""
     async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         try:
             request_line = await asyncio.wait_for(reader.readline(), timeout=5.0)
-            # drain headers (we don't use them) up to a blank line
+            content_length = 0
             while True:
                 line = await asyncio.wait_for(reader.readline(), timeout=5.0)
                 if line in (b"\r\n", b"\n", b""):
                     break
+                if line.lower().startswith(b"content-length:"):
+                    try:
+                        content_length = int(line.split(b":", 1)[1].strip())
+                    except ValueError:
+                        content_length = 0
             parts = request_line.decode("latin-1", "replace").split()
             method, path = (parts[0], parts[1]) if len(parts) >= 2 else ("GET", "/")
             clean_path = path.split("?")[0]
-            if method == "GET" and clean_path in ("/status.json", "/federation.json"):
+            if method == "POST" and clean_path == "/signal":
+                body = await asyncio.wait_for(reader.readexactly(content_length), timeout=5.0) \
+                    if content_length else b""
+                await _handle_signal(net, writer, body)
+            elif method == "GET" and clean_path in ("/status.json", "/federation.json"):
                 import json
                 snap = snapshot(net, start_time, time.time())
                 if clean_path == "/federation.json":

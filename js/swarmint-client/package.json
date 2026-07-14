@@ -1,0 +1,13 @@
+{
+  "name": "swarmint-client",
+  "version": "0.1.0",
+  "description": "JS wire/crypto/embedding client for swarmint — parity-tested against the Python swarm (tests/test_js_parity.py). The browser-ready copies (vendor-relative imports, no bundler) live in ../../web/.",
+  "type": "module",
+  "main": "src/wire.mjs",
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {
+    "@msgpack/msgpack": "^3.1.3",
+    "@noble/ed25519": "^2.3.0",
+    "@noble/hashes": "^1.8.0"
+  }
+}

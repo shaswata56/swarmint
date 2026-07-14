@@ -40,10 +40,12 @@ net = [
 cluster = ["psutil>=7"]
 # Real-data validation + the shared genesis embedding (PCA/LDA).
 learn = ["scikit-learn>=1.5"]
+# WebRTC-capable answering node (browser <-P2P-> node inference; beacon signals only).
+web = ["aiortc>=1.9"]
 # Everything, for development.
 dev = [
     "kademlia==2.2.3", "rpcudp==5.0.1", "pynacl==1.6.2", "msgpack==1.2.1",
-    "psutil>=7", "scikit-learn>=1.5",
+    "psutil>=7", "scikit-learn>=1.5", "aiortc>=1.9",
 ]
 
 [project.scripts]
