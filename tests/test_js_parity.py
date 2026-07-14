@@ -115,6 +115,34 @@ def test_python_inference_response_unpacks_in_js():
     assert abs(result["confidence"] - 0.912) < 1e-6
 
 
+def test_js_verify_then_unpack_response_uses_inner_body_not_envelope():
+    """Regression test for a real bug found in infer.html: the browser passed
+    the raw signed ENVELOPE to unpackInferenceResponse instead of the verified
+    INNER body (res.body). The envelope has no "k" discriminator (only the
+    inner body does) -> "expected 'response', got 'undefined'" at runtime,
+    which reads as "no response from node" even though a valid response
+    arrived. Drives the exact channel.onmessage pattern end-to-end."""
+    if os.environ.get("SWARM_JS_TESTS") != "1":
+        print("skip test_js_verify_then_unpack_response_uses_inner_body_not_envelope (set SWARM_JS_TESTS=1)")
+        return
+    from nacl.signing import SigningKey
+
+    from swarmint.network.identity import Identity
+    from swarmint.network.wire import pack_inference_response
+
+    sk = SigningKey.generate()
+    ident = Identity(sk)
+    qid = os.urandom(8)
+    body = pack_inference_response(qid, 4, 0.87)
+    envelope = ident.sign_envelope(body, time.time())
+
+    result = _run_js({"verifyThenUnpackResponse": {"envelopeHex": envelope.hex()}})["verifyThenUnpackResponse"]
+    assert result["ok"], result.get("reason")
+    assert bytes.fromhex(result["idHex"]) == qid
+    assert result["label"] == 4
+    assert abs(result["confidence"] - 0.87) < 1e-6
+
+
 def test_js_embedding_matches_python_for_a_real_digit():
     if os.environ.get("SWARM_JS_TESTS") != "1":
         print("skip test_js_embedding_matches_python_for_a_real_digit (set SWARM_JS_TESTS=1)")
@@ -147,5 +175,6 @@ if __name__ == "__main__":
     test_python_sign_verifies_in_js()
     test_js_inference_query_unpacks_in_python()
     test_python_inference_response_unpacks_in_js()
+    test_js_verify_then_unpack_response_uses_inner_body_not_envelope()
     test_js_embedding_matches_python_for_a_real_digit()
     print("ok")

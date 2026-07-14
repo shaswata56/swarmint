@@ -212,7 +212,7 @@ async function classify() {
         const data = new Uint8Array(await ev.data.arrayBuffer ? await ev.data.arrayBuffer() : ev.data);
         const res = await verifyEnvelope(data, unpackEnvelope);
         if (!res.ok) { reject(new Error("response failed verification: " + res.reason)); return; }
-        resolve(unpackInferenceResponse(data));
+        resolve(unpackInferenceResponse(res.body));
       };
     });
 

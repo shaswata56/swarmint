@@ -46,6 +46,23 @@ async function main() {
     out.unpackResponse = { idHex: hex(r.id), label: r.label, confidence: r.confidence };
   }
 
+  if (job.verifyThenUnpackResponse) {
+    // Mirrors infer.html's channel.onmessage EXACTLY: verify the OUTER signed
+    // envelope, then unpack the response from the VERIFIED INNER body (res.body)
+    // -- not from the raw envelope bytes. A prior bug passed the raw envelope to
+    // unpackInferenceResponse instead of res.body, which has no "k" field (only
+    // the inner body does) -> "expected 'response', got 'undefined'" at runtime.
+    // This job guards that exact pattern end-to-end.
+    const envelope = fromHex(job.verifyThenUnpackResponse.envelopeHex);
+    const res = await verifyEnvelope(envelope, unpackEnvelope);
+    if (!res.ok) {
+      out.verifyThenUnpackResponse = { ok: false, reason: res.reason };
+    } else {
+      const r = unpackInferenceResponse(res.body);
+      out.verifyThenUnpackResponse = { ok: true, idHex: hex(r.id), label: r.label, confidence: r.confidence };
+    }
+  }
+
   if (job.embed) {
     const emb = GenesisEmbedding.fromJSON(job.embed.embeddingJson);
     const raw = Float32Array.from(job.embed.rawPixels);
