@@ -411,7 +411,16 @@ async def serve(net, host: str, port: int, start_time: float) -> asyncio.Abstrac
             parts = request_line.decode("latin-1", "replace").split()
             method, path = (parts[0], parts[1]) if len(parts) >= 2 else ("GET", "/")
             clean_path = path.split("?")[0]
-            if method == "POST" and clean_path == "/signal":
+            if method == "OPTIONS" and clean_path == "/signal":
+                # CORS preflight: a cross-origin POST with a JSON body (the
+                # browser client) triggers this before the real request. No body.
+                writer.write(b"HTTP/1.1 204 No Content\r\n"
+                             b"Access-Control-Allow-Origin: *\r\n"
+                             b"Access-Control-Allow-Methods: POST, OPTIONS\r\n"
+                             b"Access-Control-Allow-Headers: Content-Type\r\n"
+                             b"Access-Control-Max-Age: 86400\r\n"
+                             b"Content-Length: 0\r\nConnection: close\r\n\r\n")
+            elif method == "POST" and clean_path == "/signal":
                 body = await asyncio.wait_for(reader.readexactly(content_length), timeout=5.0) \
                     if content_length else b""
                 await _handle_signal(net, writer, body)

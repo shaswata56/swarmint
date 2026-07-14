@@ -72,6 +72,48 @@ def test_status_url_rendered_for_clickable_federation_row():
     assert 'a class="mono idc nolink"' in html  # anchor wrapper present in the row template
 
 
+def test_signal_options_preflight_returns_cors_headers():
+    """A cross-origin POST with a JSON body (the browser client) triggers a CORS
+    preflight OPTIONS request first; browsers refuse the real POST if this isn't
+    answered with the right headers. Real socket, real asyncio server — not a
+    unit test of a helper function, the actual wire behavior."""
+    import asyncio
+
+    from nacl.signing import SigningKey
+
+    from swarmint.network import beacon_status
+    from swarmint.network.identity import Identity
+
+    class _FakeNode:
+        node_id = b"\x00" * 20
+
+    class _FakeNet:
+        identity = Identity(SigningKey(b"\x09" * 32))
+        node = _FakeNode()
+        discovery = type("D", (), {"peer_addrs": {}, "peer_seen_at": {}, "peer_topics": {}})()
+        bus = type("B", (), {"peer_addrs": {}})()
+        nat = None
+        federation = None
+
+    async def go():
+        server = await beacon_status.serve(_FakeNet(), "127.0.0.1", 8098, 0.0)
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", 8098)
+            writer.write(b"OPTIONS /signal HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+            await writer.drain()
+            raw = await reader.read()
+            writer.close()
+            return raw
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    raw = asyncio.run(go())
+    assert b"204" in raw.split(b"\r\n", 1)[0]
+    assert b"Access-Control-Allow-Origin: *" in raw
+    assert b"Access-Control-Allow-Methods: POST, OPTIONS" in raw
+
+
 def test_status_json_endpoint_shape_matches_snapshot_keys():
     snap = _fake_snapshot()
     # what beacon_status.serve() would emit for /status.json is the raw snapshot dict
@@ -84,5 +126,6 @@ if __name__ == "__main__":
     test_peer_table_is_whole_swarm_aggregate()
     test_dom_writes_are_null_guarded()
     test_status_url_rendered_for_clickable_federation_row()
+    test_signal_options_preflight_returns_cors_headers()
     test_status_json_endpoint_shape_matches_snapshot_keys()
     print("ok")
