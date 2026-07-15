@@ -431,6 +431,41 @@ async def _handle_signal(net, writer, body: bytes) -> None:
                  b"Connection: close\r\n\r\n" % len(payload) + payload)
 
 
+
+async def _handle_infer(net, writer, body):
+    """POST /infer: ensemble inference over all peers."""
+    import json
+    import numpy as np
+    from ..inference.aggregate import Response, aggregate
+    from ..node.swarm_node import TRUST_INIT
+    _CORS = b"Access-Control-Allow-Origin: \r\n"
+    _H = b"Content-Type: application/json\r\n" + _CORS + b"Cache-Control: no-store\r\n"
+    try:
+        req = json.loads(body.decode("utf-8"))
+        x = np.array(req["x"], dtype=np.float32)
+    except Exception as e:
+        payload = json.dumps({"error": str(e)}).encode()
+        writer.write(b"HTTP/1.1 400 Bad Request\r\n" + _H + b"Content-Length: %d\r\nConnection: close\r\n\r\n" % len(payload) + payload)
+        return
+    peer_ids = list(net.node.peers)
+    if not peer_ids:
+        label, conf = net.node.answer_query(x)
+        payload = json.dumps({"label": label, "confidence": round(float(conf), 4), "votes": []}).encode()
+        writer.write(b"HTTP/1.1 200 OK\r\n" + _H + b"Content-Length: %d\r\nConnection: close\r\n\r\n" % len(payload) + payload)
+        return
+    try:
+        results = await asyncio.gather(*(net.inference.query_peer(pid, x) for pid in peer_ids))
+        responses, votes = [], []
+        for pid, (label, conf) in zip(peer_ids, results):
+            votes.append({"node": pid.hex()[:8], "label": label, "confidence": round(float(conf), 3)})
+            if label is not None:
+                responses.append(Response(responder=pid, label=label, confidence=conf, trust=TRUST_INIT))
+        label, score = aggregate(responses) if responses else (None, 0.0)
+        payload = json.dumps({"label": label, "confidence": round(float(score), 4), "votes": votes}).encode()
+    except Exception as e:
+        payload = json.dumps({"error": str(e)}).encode()
+    writer.write(b"HTTP/1.1 200 OK\r\n" + _H + b"Content-Length: %d\r\nConnection: close\r\n\r\n" % len(payload) + payload)
+
 async def serve(net, host: str, port: int, start_time: float) -> asyncio.AbstractServer:
     """Start the status HTTP server bound to (host, port). Returns the server so
     the caller can close it on shutdown. Handles GET (status/page) and one POST
@@ -467,10 +502,21 @@ async def serve(net, host: str, port: int, start_time: float) -> asyncio.Abstrac
                              b"Access-Control-Allow-Headers: Content-Type\r\n"
                              b"Access-Control-Max-Age: 86400\r\n"
                              b"Content-Length: 0\r\nConnection: close\r\n\r\n")
+            elif method == "OPTIONS" and clean_path == "/infer":
+                writer.write(b"HTTP/1.1 204 No Content\r\n"
+                             b"Access-Control-Allow-Origin: *\r\n"
+                             b"Access-Control-Allow-Methods: POST, OPTIONS\r\n"
+                             b"Access-Control-Allow-Headers: Content-Type\r\n"
+                             b"Access-Control-Max-Age: 86400\r\n"
+                             b"Content-Length: 0\r\nConnection: close\r\n\r\n")
             elif method == "POST" and clean_path == "/signal":
                 body = await asyncio.wait_for(reader.readexactly(content_length), timeout=5.0) \
                     if content_length else b""
                 await _handle_signal(net, writer, body)
+            elif method == "POST" and clean_path == "/infer":
+                body = await asyncio.wait_for(reader.readexactly(content_length), timeout=5.0) \
+                    if content_length else b""
+                await _handle_infer(net, writer, body)
             elif method == "GET" and clean_path in ("/status.json", "/federation.json"):
                 import json
                 snap = snapshot(net, start_time, time.time())

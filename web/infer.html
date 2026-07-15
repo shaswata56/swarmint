@@ -75,11 +75,9 @@
       <label class="small" for="beacon">Beacon (signaling only)</label>
       <input type="text" id="beacon" value="https://beacon.swarmint.org" />
       <ul class="steps" id="steps">
-        <li data-step="sign"><span class="dot"></span>Sign query (Ed25519, in-browser)</li>
-        <li data-step="embed"><span class="dot"></span>Embed digit (shared genesis space)</li>
-        <li data-step="signal"><span class="dot"></span>Signal via beacon (SDP/ICE)</li>
-        <li data-step="channel"><span class="dot"></span>Open P2P data channel to node</li>
-        <li data-step="answer"><span class="dot"></span>Node answers (verified signature)</li>
+        <li data-step="sign"><span class="dot"></span>Embed digit (shared genesis space)</li>
+        <li data-step="signal"><span class="dot"></span>Query beacon (ensemble of backbone nodes)</li>
+        <li data-step="answer"><span class="dot"></span>Aggregate votes and answer</li>
       </ul>
       <div class="status" id="status"></div>
       <div class="result" id="result" style="display:none">
@@ -115,7 +113,7 @@ import { unpackEnvelope } from "./swarmint-client/wire.mjs";
 const canvas = document.getElementById("draw");
 const ctx = canvas.getContext("2d");
 ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-ctx.strokeStyle = "#fff"; ctx.fillStyle = "#fff"; ctx.lineWidth = 16; ctx.lineCap = "round"; ctx.lineJoin = "round";
+ctx.strokeStyle = "#fff"; ctx.fillStyle = "#fff"; ctx.lineWidth = 10; ctx.lineCap = "round"; ctx.lineJoin = "round";
 
 let drawing = false, lastX = 0, lastY = 0;
 function pos(e) {
@@ -196,7 +194,7 @@ function downsampleTo8x8() {
     // equal-margin framing of the sklearn digits source images.
     const w = bbox.maxX - bbox.minX, h = bbox.maxY - bbox.minY;
     const cx = (bbox.minX + bbox.maxX) / 2, cy = (bbox.minY + bbox.maxY) / 2;
-    const pad = 1.6; // extra margin so strokes don't touch the frame edge
+    const pad = 1.3; // extra margin so strokes don't touch the frame edge
     const side = Math.max(w, h) * pad || 1;
     const sx = Math.max(0, cx - side / 2), sy = Math.max(0, cy - side / 2);
     const sSide = Math.min(side, canvas.width - sx, canvas.height - sy);
@@ -205,7 +203,7 @@ function downsampleTo8x8() {
 
   const { data } = tctx.getImageData(0, 0, size, size);
   const out = new Float32Array(64);
-  for (let i = 0; i < 64; i++) out[i] = (data[i * 4] / 255) * 16; // R channel (grayscale strokes)
+  for (let i = 0; i < 64; i++) out[i] = Math.round((data[i * 4] / 255) * 16); // R channel, quantized to [0,16] to match sklearn digits
   return out;
 }
 
@@ -213,7 +211,7 @@ function setStatus(msg, isErr) {
   const el = document.getElementById("status");
   el.textContent = msg; el.className = "status" + (isErr ? " err" : "");
 }
-const STEP_ORDER = ["sign", "embed", "signal", "channel", "answer"];
+const STEP_ORDER = ["sign", "signal", "answer"];
 function resetSteps() {
   STEP_ORDER.forEach((s) => document.querySelector(`li[data-step="${s}"]`).className = "");
 }
@@ -383,62 +381,43 @@ async function classify() {
   if (savedMsg) savedMsg.remove();
   try {
     stepState("sign", "active");
-    const identity = await Identity.generate(); // fresh per query -- stateless client
-    const nonceOk = true; void nonceOk;
-    stepState("sign", "done");
-
-    stepState("embed", "active");
     const genesis = await loadGenesis();
     const raw = downsampleTo8x8();
     const embedded = genesis.embedRawDigit(raw);
     lastEmbedded = embedded;
-    stepState("embed", "done");
-
-    const qid = crypto.getRandomValues(new Uint8Array(8));
-    const body = packInferenceQuery(qid, embedded, 0.0);
-    const envelope = await identity.signEnvelope(body, Date.now() / 1000);
+    stepState("sign", "done");
 
     stepState("signal", "active");
-    setStatus("signaling via the beacon...");
+    setStatus("querying the swarm (ensemble of backbone nodes)...");
     const beaconUrl = document.getElementById("beacon").value.replace(/\/+$/, "");
-
-    stepState("channel", "active");
-    setStatus("opening P2P data channel to a swarm node...");
-    const { pc, channel } = await openSwarmChannel(beaconUrl);
-    const gotAnswer = new Promise((resolve, reject) => {
-      channel.onmessage = async (ev) => {
-        const data = new Uint8Array(await ev.data.arrayBuffer ? await ev.data.arrayBuffer() : ev.data);
-        const res = await verifyEnvelope(data, unpackEnvelope);
-        if (!res.ok) { reject(new Error("response failed verification: " + res.reason)); return; }
-        resolve(unpackInferenceResponse(res.body));
-      };
+    const resp = await fetch(beaconUrl + "/infer", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({x: Array.from(embedded)}),
     });
+    if (!resp.ok) throw new Error("beacon /infer returned " + resp.status);
+    const result = await resp.json();
     stepState("signal", "done");
-    stepState("channel", "done");
 
     stepState("answer", "active");
-    setStatus("waiting for the node to answer...");
-    channel.send(envelope);
-    const response = await Promise.race([gotAnswer, new Promise((_, rej) =>
-      setTimeout(() => rej(new Error("no response from node")), 10000))]);
-    stepState("answer", "done");
+    const nAnswered = result.votes ? result.votes.filter(v => v.label !== null).length : 0;
+    const nTotal = result.votes ? result.votes.length : 0;
+    const nAgreed = result.votes ? result.votes.filter(v => v.label === result.label).length : 0;
 
-    // Prefer a personal (session-local) match over the swarm's answer -- this is
-    // the whole point of the correction loop: it fixes YOUR domain gap (your
-    // drawing style) even when the shared genesis model can't. Never silently
-    // hides the swarm's own answer if there's no close personal match.
     const personal = personalNearest(embedded);
     if (personal) {
-      setStatus("matched a digit you previously corrected (session-local, no network round-trip needed for this part).");
+      setStatus("matched a digit you previously corrected (session-local).");
       renderResult(personal.label, null, true);
+    } else if (result.label === null) {
+      setStatus("the swarm abstained (query looked off-manifold to all " + nTotal + " backbone nodes).");
+      renderResult(null, null, false);
     } else {
-      setStatus(response.label === null
-        ? "the node abstained (query looked off-manifold to it)."
-        : "answered directly by a swarm node over WebRTC -- no server in the loop.");
-      renderResult(response.label, response.label === null ? null : response.confidence, false);
+      setStatus(nAgreed + "/" + nTotal + " backbone nodes agreed" +
+        " (answered " + nAnswered + "/" + nTotal + "). Ensemble confidence: " +
+        (result.confidence * 100).toFixed(1) + "%.");
+      renderResult(result.label, result.confidence, false);
     }
-
-    pc.close();
+    stepState("answer", "done");
   } catch (e) {
     console.error(e);
     setStatus(String(e.message || e), true);
